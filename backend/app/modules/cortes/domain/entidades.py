@@ -55,12 +55,19 @@ ARCHIVOS_OBLIGATORIOS: tuple[TipoArchivoFuente, ...] = (
     TipoArchivoFuente.PROYECTOS,
 )
 
-# TODO [HU-01][BE-04] Declarar qué archivos son reutilizables.
-#   HU-01/CA-5: "el PDT y el archivo del municipio" se reutilizan del corte
-#   anterior. HU-01/CA-7: el archivo de ejecución NUNCA se reutiliza.
-#   PENDIENTE DE CONFIRMAR CON LA CLIENTA: se interpretó que "archivo del
-#   municipio" = la plantilla de proyectos BPIN, por ser la única de las tres
-#   que el municipio diligencia a mano. Si es un cuarto archivo, falta una tabla.
+#: HU-01/CA-5, CA-7: archivos que se reutilizan automáticamente del último
+#: corte REGISTRADO de la MISMA vigencia (D-05). EJECUCION queda deliberadamente
+#: fuera de esta tupla: CA-7 exige que se solicite siempre, en todo corte.
+#:
+#: SUPUESTO (D-04 del equipo, PENDIENTE DE RATIFICAR CON LA CLIENTA): "el
+#: archivo del municipio" de CA-5/CA-6 = la plantilla de proyectos BPIN, por
+#: ser la única de las tres que el municipio diligencia a mano. Si en realidad
+#: se refiere a un cuarto archivo no modelado, esta tupla y la tabla de fuentes
+#: deben revisarse.
+ARCHIVOS_REUTILIZABLES: tuple[TipoArchivoFuente, ...] = (
+    TipoArchivoFuente.PDT,
+    TipoArchivoFuente.PROYECTOS,
+)
 
 
 @dataclass(slots=True)
@@ -112,5 +119,9 @@ class Corte:
         raise NotImplementedError("[HU-01][BE-05] Transición a REGISTRADO")
 
     def puede_reutilizar(self, tipo: TipoArchivoFuente) -> bool:
-        """HU-01/CA-7: el archivo de ejecución nunca se reutiliza."""
-        raise NotImplementedError("[HU-01][BE-04] Regla de reutilización")
+        """HU-01/CA-5, CA-7: solo PDT y PROYECTOS son reutilizables.
+
+        EJECUCION siempre devuelve False: CA-7 exige que se solicite en cada
+        corte, sin excepción.
+        """
+        return tipo in ARCHIVOS_REUTILIZABLES

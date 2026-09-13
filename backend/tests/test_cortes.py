@@ -44,3 +44,17 @@ def test_archivos_faltantes_en_corte_nuevo_devuelve_los_tres():
         TipoArchivoFuente.PROYECTOS,
     }
     assert corte.esta_completo() is False
+
+
+def test_puede_reutilizar_acepta_pdt_y_proyectos():
+    corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+    assert corte.puede_reutilizar(TipoArchivoFuente.PDT) is True
+    assert corte.puede_reutilizar(TipoArchivoFuente.PROYECTOS) is True
+
+
+def test_puede_reutilizar_rechaza_ejecucion():
+    """HU-01/CA-7: el archivo de ejecucion se solicita siempre, nunca se reutiliza."""
+    corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+    assert corte.puede_reutilizar(TipoArchivoFuente.EJECUCION) is False

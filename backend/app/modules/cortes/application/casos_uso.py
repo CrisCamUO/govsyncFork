@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.modules.cortes.domain.entidades import Corte
+from app.modules.cortes.domain.entidades import ArchivoFuente, Corte
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
 
 
@@ -61,22 +61,51 @@ class ServicioCortes:
         self._hoy = hoy or date.today()
 
     def crear_corte(self, vigencia: int, fecha_corte: date) -> Corte:
-        """HU-01 / CA-1, CA-8.
+        """HU-01 / CA-1, CA-5, CA-7, CA-8.
 
         La validacion de fecha futura (CA-2) se delega al dominio, no se
-        reimplementa aqui. La reutilizacion de fuentes (CA-5, CA-7) es
-        [HU-01][BE-04], no esta tarjeta: un corte recien creado siempre
-        queda con los 3 archivos faltantes.
+        reimplementa aqui. Tras guardar el corte en BORRADOR, se reutilizan
+        automaticamente PDT y PROYECTOS del ultimo corte REGISTRADO de la
+        MISMA vigencia (CA-5, D-05); EJECUCION nunca se reutiliza (CA-7).
+        Todo dentro de la misma transaccion: si copiar los datos de origen
+        falla, no queda ni el corte a medio crear.
         """
         Corte.validar_fecha(fecha_corte, self._hoy)
         corte = Corte(vigencia=vigencia, fecha_corte=fecha_corte)
         try:
             corte_guardado = self._cortes.guardar(corte)
+            self._reutilizar_fuentes(corte_guardado)
             self._commit()
         except Exception:
             self._rollback()
             raise
         return corte_guardado
+
+    def _reutilizar_fuentes(self, corte: Corte) -> None:
+        """HU-01/BE-04: copia PDT y PROYECTOS del ultimo corte REGISTRADO de
+        la misma vigencia (CA-5). No hace nada si no existe uno (primer corte
+        de la vigencia) o si esa fuente no aplica (CA-7, EJECUCION).
+
+        CA-6 (reemplazar un archivo reutilizado) no se implementa aqui: ya lo
+        resuelve `registrar_archivo`/`reemplazar_*` (HU-06), que SIEMPRE
+        sustituye el archivo de ese tipo sin importar si estaba reutilizado.
+        """
+        origen = self._cortes.ultimo_registrado(vigencia=corte.vigencia)
+        if origen is None:
+            return
+        for tipo, archivo_origen in origen.archivos.items():
+            if not corte.puede_reutilizar(tipo):
+                continue
+            filas_copiadas = self._datos.copiar_datos(origen.id, corte.id, tipo)
+            archivo_nuevo = ArchivoFuente(
+                tipo=tipo,
+                nombre_archivo=archivo_origen.nombre_archivo,
+                filas_reconocidas=filas_copiadas,
+                reutilizado=True,
+                corte_origen_id=origen.id,
+            )
+            self._cortes.registrar_archivo(corte.id, archivo_nuevo)
+            corte.archivos[tipo] = archivo_nuevo
 
     def cargar_archivo(self, corte_id, tipo, contenido: bytes, nombre_archivo: str):
         """HU-02, HU-03, HU-04 y HU-06 (reemplazo del archivo)."""
