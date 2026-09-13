@@ -76,10 +76,54 @@ class TestCodigoIndicadorProducto:
         assert directo == normalizado
         assert len({directo, normalizado}) == 1
 
-    def test_extraer_todos_esta_fuera_del_alcance_de_trans_01(self) -> None:
-        # [HU-04][BE-03]: la separación multivalor se implementa en la Fase 3.
-        with pytest.raises(NotImplementedError):
-            CodigoIndicadorProducto.extraer_todos("459903100")
+    def test_extraer_todos_separa_el_ejemplo_real_de_la_tarjeta(self) -> None:
+        celda = (
+            "459903100\n"
+            "Entidades, organismos y dependencias asistidos técnicamente\n"
+            "$ 1.218.264.452\n"
+            "\n"
+            "459902300\n"
+            "Sistema de Gestión implementado\n"
+            "$230.000.000,00"
+        )
+        assert CodigoIndicadorProducto.extraer_todos(celda) == [
+            CodigoIndicadorProducto("459903100"),
+            CodigoIndicadorProducto("459902300"),
+        ]
+
+    def test_extraer_todos_ignora_nombre_y_monto_de_un_solo_bloque(self) -> None:
+        celda = "040110500\nUn producto cualquiera\n$100.000"
+        assert CodigoIndicadorProducto.extraer_todos(celda) == [
+            CodigoIndicadorProducto("040110500")
+        ]
+
+    def test_extraer_todos_no_recupera_cero_perdido_en_ocho_digitos(self) -> None:
+        # A diferencia de desde_crudo: aquí un candidato de 8 dígitos casi
+        # siempre es un monto sin '$' u otro fragmento, no un código truncado.
+        # Rellenarlo fabricaría un código que no existe en la celda real.
+        celda = "40110500\nProducto\n$100"
+        assert CodigoIndicadorProducto.extraer_todos(celda) == []
+
+    def test_extraer_todos_ignora_un_bpin_de_quince_digitos(self) -> None:
+        celda = "459903100\nProducto\n202400000002842"
+        assert CodigoIndicadorProducto.extraer_todos(celda) == [
+            CodigoIndicadorProducto("459903100")
+        ]
+
+    def test_extraer_todos_conserva_duplicados(self) -> None:
+        celda = "459903100\nA\n$1\n\n459903100\nB\n$2"
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado == [
+            CodigoIndicadorProducto("459903100"),
+            CodigoIndicadorProducto("459903100"),
+        ]
+        assert len(resultado) == 2
+
+    @pytest.mark.parametrize("vacio", [None, "", "   ", 459903100, float("nan")])
+    def test_extraer_todos_con_entrada_no_normalizable_devuelve_lista_vacia(
+        self, vacio: object
+    ) -> None:
+        assert CodigoIndicadorProducto.extraer_todos(vacio) == []
 
 
 class TestCodigoBpin:

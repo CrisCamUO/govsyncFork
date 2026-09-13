@@ -12,16 +12,28 @@ pruebas de ese CA pasan) · `Bloqueado` (anotar por qué en Evidencia).
 
 ## E-02 / HU-01 — Crear corte de seguimiento (8 SP)
 
+> Actualizado 2026-09-13 (CA-5/CA-6/CA-7) tras revisión estática del código en
+> la rama `feature/hu01-be04-reutilizacion-fuentes` — ver nota de alcance al
+> final de esta sección: no fue posible ejecutar `pytest` en este entorno para
+> confirmarlo en caliente, se pide correrlo en local antes de mover la
+> tarjeta a "Tareas hechas".
+
 | CA                                              | Tarjeta(s)                         | Archivo                                            | Estado                       | Prueba | Evidencia |
 | ----------------------------------------------- | ---------------------------------- | -------------------------------------------------- | ---------------------------- | ------ | --------- |
 | CA-1 (registro exitoso, parcial)                | `[HU-01][BE-03]`                   | `cortes/application/casos_uso.py`                  | Probado                      | `test_casos_uso_cortes.py` (3 pruebas) | 23 passed en local (2026-09-09) |
 | CA-2 (rechaza fecha futura)                     | `[HU-01][BE-01]`                   | `cortes/domain/entidades.py::Corte.validar_fecha`  | Probado                      | `test_cortes.py::test_rechaza_fecha_futura_con_motivo` | 19 passed en local (2026-09-08) |
 | CA-3 (no registra sin archivos completos)       | `[HU-01][BE-05]`                   | `cortes/application/casos_uso.py::registrar_corte` | Pendiente                    | —      | —         |
 | CA-4 (registro exitoso completo)                | `[HU-01][BE-01]`, `[HU-01][BE-05]` | `entidades.py`, `casos_uso.py`                     | En progreso (BE-01 probado, BE-05 falta) | `test_cortes.py::test_archivos_faltantes_en_corte_nuevo_devuelve_los_tres` (19 passed, 2026-09-08) | `registrar()` sigue NotImplementedError, es BE-05 |
-| CA-5 (reutilización automática PDT + municipio) | `[HU-01][BE-04]`                   | `entidades.py` + `casos_uso.py`                    | Pendiente (bloqueado por D3) | —      | —         |
-| CA-6 (opción de reemplazar reutilizados)        | `[HU-01][BE-04]`                   | idem                                               | Pendiente                    | —      | —         |
-| CA-7 (archivo de ejecución siempre solicitado)  | `[HU-01][BE-04]`                   | idem                                               | Pendiente                    | —      | —         |
+| CA-5 (reutilización automática PDT + municipio) | `[HU-01][BE-04]`                   | `entidades.py` + `casos_uso.py`                    | Implementado (dominio/aplicación); probado solo con repositorio en memoria | `test_casos_uso_cortes.py` | Pendiente confirmar con `pytest` en local; falta prueba con repositorio real (SQLAlchemy) |
+| CA-6 (opción de reemplazar reutilizados)        | `[HU-01][BE-04]`                   | idem                                               | Implementado (vía el mecanismo genérico de HU-06) | `test_repositorios_cortes.py::test_registrar_archivo_inserta_y_luego_reemplaza` | Pendiente confirmar con `pytest` en local |
+| CA-7 (archivo de ejecución siempre solicitado)  | `[HU-01][BE-04]`                   | idem                                               | Probado                      | `test_cortes.py::test_puede_reutilizar_rechaza_ejecucion` | Pendiente confirmar con `pytest` en local |
 | CA-8 (endpoint)                                 | `[HU-01][FE-01]`                   | `cortes/api/router.py`                             | Pendiente                    | —      | —         |
+
+> Nota de alcance (CA-5/CA-6/CA-7): esta actualización se hizo leyendo el
+> código y los nombres de prueba ya escritos en la rama, no ejecutando la
+> suite (este entorno no puede instalar `pytest`). Antes de marcar estos CA
+> como cerrados hay que correr `pytest backend/tests -v` en local y pegar el
+> resultado real en Evidencia.
 
 ## E-02 / HU-02 — Cargar Plan Indicativo (3 SP)
 
@@ -58,7 +70,7 @@ pruebas de ese CA pasan) · `Bloqueado` (anotar por qué en Evidencia).
 | CA-1 (endpoint)                                            | `[HU-04][FE-01]` | `cortes/api/router.py`                | Pendiente | —      | —         |
 | CA-2 (carga tal cual, sin exigir estructura estandarizada) | `[HU-04][BE-01]` | `lectores/proyectos.py`               | Pendiente | —      | —         |
 | CA-3 (extracción acotada de columnas)                      | `[HU-04][BE-02]` | `lectores/proyectos.py::OBLIGATORIAS` | Pendiente | —      | —         |
-| CA-4 (separa indicadores multivalor automáticamente)       | `[HU-04][BE-03]` | `shared/codigos.py::extraer_todos`    | Pendiente | —      | —         |
+| CA-4 (separa indicadores multivalor automáticamente)       | `[HU-04][BE-03]` | `shared/codigos.py::CodigoIndicadorProducto.extraer_todos` | Probado | `test_codigos.py::TestCodigoIndicadorProducto` (6 pruebas nuevas: ejemplo real de la tarjeta, ignora nombre/monto, NO recupera cero perdido en 8 dígitos, ignora un BPIN de 15, conserva duplicados, entradas no normalizables) | Pendiente de correr `pytest tests/test_codigos.py -v` en local para confirmación oficial |
 | CA-5 (alimenta matriz de relación)                         | `[HU-04][BE-04]` | `casos_uso.py::cargar_archivo`        | Pendiente | —      | —         |
 
 ## E-02 / HU-07 — Visualizar matriz de relación del corte (5 SP)

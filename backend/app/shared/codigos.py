@@ -152,10 +152,37 @@ class CodigoIndicadorProducto:
             Sistema de Gestión implementado
             $230.000.000,00
 
-        Un split("\\n") ingenuo devolvería nombres y montos como si fueran
-        códigos. Ojo también con no extraer fragmentos de un BPIN de 15 dígitos.
+        DISEÑO: se evalúa LÍNEA POR LÍNEA (`texto.split("\\n")`), nunca con una
+        expresión regular sobre el bloque completo. Un `re.findall(r"\\d{9}")`
+        ingenuo, aplicado al texto entero, puede "encontrar" 9 dígitos dentro de
+        un monto sin separadores (`$ 1.218.264.452` -> `1218264452`, 10 dígitos
+        contiguos) o dentro de un BPIN de 15 si alguno apareciera en la celda —
+        exactamente el fragmento que la tarjeta pide evitar. Al exigir que la
+        LÍNEA COMPLETA, ya recortada de espacios, sean nueve dígitos ASCII y
+        nada más, un monto o un BPIN de 15 nunca puede calzar por longitud.
+
+        SUPUESTO (no confirmado con la clienta, no crítico para el modelo de
+        datos): no se aplica la tolerancia de "un cero perdido" de
+        `desde_crudo` aquí. Esa tolerancia existe para cuando pandas leyó la
+        celda ENTERA como número y perdió el cero al convertir a texto; aquí
+        cada línea ya es texto tal cual lo escribió el municipio, así que un
+        candidato de 8 dígitos no es "un 9 con el cero comido", es casi
+        seguro un monto o fragmento sin el símbolo `$` — normalizarlo
+        fabricaría un código que no existe. Si la clienta confirma que SÍ debe
+        recuperarse en este caso, es un cambio acotado a esta función.
+
+        No se deduplica: si el mismo código aparece dos veces en la celda
+        (dos bloques distintos con el mismo indicador), CA-4 no pide
+        colapsarlos y hacerlo perdería información real de conteo.
         """
-        raise NotImplementedError("[HU-04][BE-03] Separación multivalor")
+        if not isinstance(texto, str):
+            return []
+        codigos: list[CodigoIndicadorProducto] = []
+        for linea in texto.split("\n"):
+            candidato = linea.strip()
+            if _es_cadena_de_digitos(candidato, LONGITUD_INDICADOR):
+                codigos.append(cls(candidato))
+        return codigos
 
 
 @dataclass(frozen=True, slots=True)
