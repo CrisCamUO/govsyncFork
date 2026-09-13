@@ -9,9 +9,13 @@
  */
 import { Route, Routes } from "react-router-dom";
 
+import Disposicion from "./components/Disposicion.jsx";
+
 function Pendiente() {
   return (
-    <main style={{ maxWidth: 640, margin: "4rem auto", padding: "0 1.5rem" }}>
+    <section
+      style={{ maxWidth: 640, margin: "4rem auto", padding: "0 1.5rem" }}
+    >
       <h1>GovSync</h1>
       <p className="apagado">
         Esqueleto del Sprint 1. Las pantallas se implementan según
@@ -21,17 +25,19 @@ function Pendiente() {
         Backend:{" "}
         <a href="http://localhost:8000/docs">http://localhost:8000/docs</a>
       </p>
-    </main>
+    </section>
   );
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* TODO [HU-01][FE-02] <Route path="/cortes" element={<Cortes />} /> */}
-      {/* TODO [HU-01][FE-02] <Route path="/cortes/nuevo" element={<NuevoCorte />} /> */}
-      {/* TODO [HU-07][FE-02] <Route path="/matriz/:corteId?" element={<MatrizRelacion />} /> */}
-      <Route path="*" element={<Pendiente />} />
+      <Route element={<Disposicion />}>
+        {/* TODO [HU-01][FE-02] <Route path="/cortes" element={<Cortes />} /> */}
+        {/* TODO [HU-01][FE-02] <Route path="/cortes/nuevo" element={<NuevoCorte />} /> */}
+        {/* TODO [HU-07][FE-02] <Route path="/matriz/:corteId?" element={<MatrizRelacion />} /> */}
+        <Route path="*" element={<Pendiente />} />
+      </Route>
     </Routes>
   );
 }

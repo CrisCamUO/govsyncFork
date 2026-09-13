@@ -16,8 +16,7 @@
  * `pestanas_faltantes` o `archivos_faltantes` según el caso. [UX-03] depende
  * de que este cliente NO los descarte.
  */
-
-//#const BASE = import.meta.env.VITE_API_URL ?? "";
+const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
 export class ErrorApi extends Error {
   constructor(mensaje, { estado, codigo, detalles } = {}) {
@@ -28,14 +27,58 @@ export class ErrorApi extends Error {
     this.detalles = detalles ?? {};
   }
 }
+// eslint-disable-next-line no-unused-vars -- UX-01 define el helper; FE-01 lo consumirá.
+async function solicitar(ruta, { metodo = "GET", cuerpo, archivo } = {}) {
+  const headers = {
+    Accept: "application/json",
+  };
 
-//async function solicitar(ruta, { metodo = "GET", cuerpo, archivo } = {}) {
-// TODO [UX-01] Construir la petición:
-//   - archivo -> FormData con el campo "archivo"
-//   - cuerpo  -> JSON con Content-Type
-//   - respuesta no-ok -> lanzar ErrorApi conservando codigo y detalles
-//throw new Error("[UX-01] Cliente HTTP sin implementar");
-//}
+  const opciones = {
+    method: metodo,
+    headers,
+  };
+
+  if (archivo) {
+    const formulario = new FormData();
+    formulario.append("archivo", archivo);
+    opciones.body = formulario;
+  } else if (cuerpo !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opciones.body = JSON.stringify(cuerpo);
+  }
+
+  let respuesta;
+
+  try {
+    respuesta = await fetch(`${BASE}${ruta}`, opciones);
+  } catch {
+    throw new ErrorApi("No se pudo conectar con el servidor.", {
+      codigo: "error_red",
+      detalles: {},
+    });
+  }
+
+  const contenido = await respuesta.text();
+  let datos = null;
+
+  if (contenido) {
+    try {
+      datos = JSON.parse(contenido);
+    } catch {
+      datos = null;
+    }
+  }
+
+  if (!respuesta.ok) {
+    throw new ErrorApi(datos?.mensaje ?? "No se pudo completar la solicitud.", {
+      estado: respuesta.status,
+      codigo: datos?.codigo,
+      detalles: datos?.detalles,
+    });
+  }
+
+  return datos;
+}
 
 export const api = {
   // TODO [HU-01][FE-01] crearCorte, listarCortes, obtenerCorte, registrarCorte
