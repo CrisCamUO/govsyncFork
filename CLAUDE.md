@@ -60,6 +60,12 @@ cases, orchestration) → `domain/` (entities, value objects, ports/interfaces, 
 exceptions) ← `persistence/` (SQLAlchemy models, repositories, Excel readers). Dependencies point
 toward the domain; persistence implements the domain's ports.
 
+**Skeleton status:** this repo is built card-by-card per `PLANDETRABAJO.md`, so large parts of the
+layout described below are contracts, not finished code — a stub raises `NotImplementedError`, has
+a `# TODO [tarjeta]` comment, or has its body commented out. This file describes the target shape;
+it is not re-verified on every merge, so before assuming something is implemented, check the
+file's own docstring/TODO (it names the owning card) or just read the function body.
+
 Modules: `cortes` (the tracking "corte" — the aggregate everything else hangs off), `ingesta`
 (Excel readers/parsers for the three source files), `trazabilidad` (cross-reference queries/matrix
 between indicators, budget execution, and BPIN projects). Shared kernel: `app/shared/codigos.py`
@@ -79,12 +85,14 @@ layer): only `.xlsx`, size checked before reading into memory, filename sanitize
 traversal, macro-enabled `.xlsm` rejected outright, required sheets validated before processing.
 An invalid file is rejected **in full** — never partial data.
 
-Frontend (`frontend/src/`): `api/cliente.js` is the shared HTTP client — it must preserve
-`error.detalles` from failed requests (carries `columnas_faltantes`, `pestanas_faltantes`,
-`archivos_faltantes` from the backend so the UI can show actionable messages, not just "failed").
-`components/` holds shared UI (`Estados.jsx` for loading/error/empty states, `CargaDeArchivo.jsx`
-for file upload), `pages/` holds route-level screens (`NuevoCorte.jsx`, `Cortes.jsx`,
-`MatrizRelacion.jsx`).
+Frontend (`frontend/src/`): `api/cliente.js` is the shared HTTP client (`[UX-01]`, still a stub as
+of this writing — `solicitar()`'s body and the `api` methods are commented out/empty). Once built,
+it must preserve `error.detalles` from failed requests (carries `columnas_faltantes`,
+`pestanas_faltantes`, `archivos_faltantes` from the backend so the UI can show actionable messages,
+not just "failed") — `ErrorApi` already models this shape. `components/` holds shared UI
+(`Estados.jsx` for loading/error/empty states — `Error` is implemented; `CargaDeArchivo.jsx` for
+file upload, still a stub `[UX-02]`), `pages/` holds route-level screens (`NuevoCorte.jsx`,
+`Cortes.jsx`, `MatrizRelacion.jsx`) not yet wired into `App.jsx`'s router.
 
 ## Conventions
 
@@ -104,6 +112,7 @@ Full guidance on branch/commit workflow and sprint mechanics: [CONTRIBUTING.md](
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
 Rules:
+
 - For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
