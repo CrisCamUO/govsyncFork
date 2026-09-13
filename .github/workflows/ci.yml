@@ -44,6 +44,64 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  backend-calidad:
+    name: Backend — lint, formato y pruebas
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      # La cobertura mínima del DoD (70 %) se exige aquí, no en pyproject.toml,
+      # para no bloquear la ejecución local durante el desarrollo.
+      - run: python -m pytest --cov-fail-under=70
+
+  backend-migraciones:
+    name: Backend — migraciones contra PostgreSQL 16
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: govsync
+          POSTGRES_PASSWORD: govsync
+          POSTGRES_DB: govsync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U govsync -d govsync"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: clave-solo-para-ci-no-usar-en-produccion
+      DATABASE_URL: postgresql+psycopg://govsync:govsync@localhost:5432/govsync
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      # Ida y vuelta completa: valida upgrade, downgrade (incluye el drop
+      # manual de los tipos ENUM) y un segundo upgrade sin colisiones.
+      - run: alembic upgrade head
+      - run: alembic downgrade base
+      - run: alembic upgrade head
+
   commitlint:
     name: Validate commit messages
     runs-on: ubuntu-latest

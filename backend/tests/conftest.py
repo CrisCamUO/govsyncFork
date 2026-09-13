@@ -35,8 +35,9 @@ from app.main import crear_app
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-# TODO [BD-01] Importar aquí los modelos ORM para que Base.metadata los conozca:
-#     from app.modules.cortes.persistence import models as _m
+# Importa los modelos ORM para que Base.metadata conozca todas las tablas antes
+# de create_all; sin este import la base de pruebas se crea vacía.
+from app.modules.cortes.persistence import models as _modelos  # noqa: E402, F401
 
 
 @pytest.fixture()
