@@ -168,9 +168,7 @@ def test_crear_corte_reutilizacion_copia_los_datos_de_origen(servicio):
 
     nuevo = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
 
-    llamadas = {
-        (o, d, t) for o, d, t in servicio._datos.llamadas_copiar_datos
-    }
+    llamadas = {(o, d, t) for o, d, t in servicio._datos.llamadas_copiar_datos}
     assert (anterior.id, nuevo.id, TipoArchivoFuente.PDT) in llamadas
     assert (anterior.id, nuevo.id, TipoArchivoFuente.PROYECTOS) in llamadas
     assert not any(t == TipoArchivoFuente.EJECUCION for _, _, t in llamadas)

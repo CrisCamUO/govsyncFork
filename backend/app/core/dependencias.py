@@ -29,17 +29,32 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
+from app.modules.cortes.application.casos_uso import ServicioCortes
+from app.modules.cortes.persistence.repositorios import (
+    RepositorioCortesSQL,
+    RepositorioDatosCorteSQL,
+)
 
 SesionDep = Annotated[Session, Depends(get_session)]
 
-# TODO [HU-01][BE-03] Cuando exista ServicioCortes, agregar aquí su proveedor:
-#
-#   def obtener_servicio_cortes(sesion: SesionDep) -> ServicioCortes:
-#       return ServicioCortes(
-#           repo_cortes=RepositorioCortesSQL(sesion),
-#           repo_datos=RepositorioDatosCorteSQL(sesion),
-#           confirmar_transaccion=sesion.commit,
-#           revertir_transaccion=sesion.rollback,
-#       )
-#
-#   ServicioCortesDep = Annotated[ServicioCortes, Depends(obtener_servicio_cortes)]
+
+def obtener_servicio_cortes(sesion: SesionDep) -> ServicioCortes:
+    """[HU-01][FE-01] Composition root de ServicioCortes para los routers.
+
+    OJO [BD-02]: RepositorioCortesSQL y RepositorioDatosCorteSQL siguen
+    siendo clases abstractas incompletas en develop (solo TODO, sin
+    metodos implementados) — instanciarlas aqui lanza TypeError. Contra
+    Postgres real, los endpoints que dependen de esto responderan 500 hasta
+    que [BD-02] se fusione (existe en origin/base/modelos). Las pruebas de
+    la API no pasan por aqui: sobreescriben ServicioCortesDep con
+    repositorios en memoria (ver tests/test_router_cortes.py).
+    """
+    return ServicioCortes(
+        repo_cortes=RepositorioCortesSQL(sesion),
+        repo_datos=RepositorioDatosCorteSQL(sesion),
+        confirmar_transaccion=sesion.commit,
+        revertir_transaccion=sesion.rollback,
+    )
+
+
+ServicioCortesDep = Annotated[ServicioCortes, Depends(obtener_servicio_cortes)]

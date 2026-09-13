@@ -231,3 +231,100 @@ documental.
 **Estado:** RATIFICADA.
 
 **Registrado:** 2026-09-08.
+
+---
+
+## D8 · Reconciliación de CA-8 entre PLANDETRABAJO.md/TRAZABILIDAD.md y CASOS_DE_PRUEBA.md (HU-01)
+
+**Hallazgo:** `docs/CASOS_DE_PRUEBA.md` (CP-HU01-08) marcaba CA-8 como "✅
+Probado" con evidencia de `test_casos_uso_cortes.py` (capa de aplicación,
+sin superficie HTTP), mientras que `PLANDETRABAJO.md` §2.7 y
+`docs/TRAZABILIDAD.md` (fila CA-8) coinciden en que CA-8 es "el endpoint"
+(`cortes/api/router.py`) y lo marcaban "Pendiente" hasta que
+`[HU-01][FE-01]` existiera. Las tres fuentes no pueden estar en lo correcto
+a la vez.
+
+**Decisión:** se corrige `docs/CASOS_DE_PRUEBA.md` para alinearse con las
+otras dos fuentes (que además asignan explícitamente la tarjeta que cierra
+el CA). CP-HU01-08 pasa de "✅ Probado" a "🟡 En progreso": la prueba
+existente verifica una precondición necesaria de aplicación, no la
+referenciabilidad por API que el CA describe literalmente ("el corte queda
+disponible como referencia... para asociarle archivos fuente").
+`[HU-01][FE-01]` cierra CA-8 por completo, al exponer `GET /cortes` y
+`GET /cortes/{id}`.
+
+**Motivo:** mismo patrón que D5/D6 — un documento derivado se adelantó a
+marcar un CA como cerrado con una prueba que cubre solo una parte de lo que
+el CA exige.
+
+**Alternativas consideradas:** corregir `PLANDETRABAJO.md`/`TRAZABILIDAD.md`
+en vez de `CASOS_DE_PRUEBA.md` — descartada porque esas dos fuentes ya
+asignan explícitamente la tarjeta que cierra el CA, más específico y
+verificable que la descripción de `CASOS_DE_PRUEBA.md`.
+
+**Estado:** VIGENTE.
+
+**Registrado:** 2026-09-11.
+
+---
+
+## D9 · Qué hace que dos cortes se consideren duplicados
+
+**Decisión:** se rechaza la creación de un corte si ya existe otro con la
+misma vigencia y la misma fecha_corte exacta. Con D11 (un solo corte en
+BORRADOR activo a la vez), este conflicto solo puede darse entre cortes ya
+REGISTRADO.
+
+**Motivo:** HU-07 necesita identificar "el corte actual" sin ambigüedad
+(GET /matriz-relacion/actual). Dos cortes con la misma fecha lo impiden.
+
+**Alternativas consideradas:** unicidad solo por vigencia (D-03 en
+`docs/ESPECIFICACIONES_TECNICAS.md`, sección HU-01) — descartada: impediría
+más de un corte por año, contradice el uso esperado (revisiones periódicas).
+
+**Nota:** no confundir con "D-09" en `docs/ESPECIFICACIONES_TECNICAS.md`,
+sección HU-03 — es un tema distinto (filas de ejecución reconocidas),
+coincidencia de número entre dos sistemas de numeración diferentes.
+
+**Estado:** RATIFICADA.
+
+**Registrado:** 2026-09-13.
+**Ratificado:** 2026-09-13 por el equipo.
+
+---
+
+## D10 · La creación del corte requiere una acción explícita
+
+**Decisión:** `POST /cortes` se dispara solo con un clic explícito (ej.
+"Continuar") al cerrar el paso de vigencia/fecha, nunca porque la
+validación del formulario pase mientras se escribe.
+
+**Motivo:** en el mockup actual, el checkmark "Datos del corte
+configurados" se enciende con validación en tiempo real; si disparara la
+creación, cada corrección de una fecha ya válida crearía un BORRADOR nuevo.
+
+**Riesgo si no se ratifica:** Karold puede implementar cualquiera de los
+dos sin saber cuál se espera.
+
+**Estado:** PROPUESTA — pendiente de confirmar antes de construir
+`pages/NuevoCorte.jsx` (`[HU-01][FE-02]`, tarjeta 2.8).
+
+**Registrado:** 2026-09-13.
+
+---
+
+## D11 · Solo un corte en BORRADOR activo a la vez
+
+**Decisión:** al crear un corte, se rechaza si ya existe otro en BORRADOR.
+Corregirlo requiere `PATCH /cortes/{id}`, que no existe hoy.
+
+**Motivo:** el proceso real de la clienta es secuencial; simplifica D9.
+
+**A qué afecta (no implementar aún, solo dejar constancia):** `crear_corte`
+en `casos_uso.py`, método nuevo en `puertos.py`, endpoint `PATCH` sin
+dueño, mapeo 409 en `core/errores.py`.
+
+**Estado:** RATIFICADA.
+
+**Registrado:** 2026-09-13.
+**Ratificado:** 2026-09-13 por el equipo.
