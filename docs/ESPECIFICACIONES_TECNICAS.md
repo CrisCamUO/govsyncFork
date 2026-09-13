@@ -65,12 +65,11 @@ Fuente: TODO del router `cortes/api/router.py`, ya escrito en el esqueleto.
 }
 ```
 
-`estado` es `BORRADOR` o `REGISTRADO` — **D-03, PENDIENTE DE RATIFICAR por el
-equipo**: el CA exige que un corte incompleto no quede registrado (CA-3), pero
-CA-1/CA-3 de HU-02/03/04 asumen que ya existe un corte identificable antes de
-cargarle archivos. El estado explícito resuelve la contradicción; hasta que el
-equipo lo ratifique, este esquema de salida es la interpretación vigente, no
-un hecho confirmado.
+`estado` es `BORRADOR` o `REGISTRADO` — decisión ya **RATIFICADA** como D7 en
+`docs/DECISIONES.md`: el CA exige que un corte incompleto no quede registrado
+(CA-3), pero CA-1/CA-3 de HU-02/03/04 asumen que ya existe un corte
+identificable antes de cargarle archivos. El estado explícito resuelve la
+contradicción.
 
 ### Tablas que toca
 
@@ -79,13 +78,13 @@ lectura al reutilizar). Ver `cortes/persistence/models.py`.
 
 ### Reglas de validación
 
-| Regla                                                                                                                                                                                                              | CA               | Dónde vive                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `fecha_corte` no puede ser futura                                                                                                                                                                                  | CA-2             | Dominio: `Corte.validar_fecha`                                                                             |
-| No se registra si falta algún archivo obligatorio (nuevo o reutilizado)                                                                                                                                            | CA-3             | Dominio: `Corte.archivos_faltantes` / `esta_completo`                                                      |
-| PDT y Proyectos (**D-04, PENDIENTE DE RATIFICAR con la clienta**: «archivo del municipio» = plantilla de Proyectos BPIN) se reutilizan automáticamente si ya existen en un corte anterior de la **misma vigencia** | CA-5, CA-6       | Aplicación: `ServicioCortes` (D-05: reutilizar es _copiar_ filas con `corte_id` nuevo, nunca compartirlas) |
-| El archivo de EJECUCIÓN nunca se reutiliza, se solicita siempre                                                                                                                                                    | CA-7             | Aplicación                                                                                                 |
-| A lo sumo un borrador por vigencia                                                                                                                                                                                 | D-03 (propuesta) | Base de datos: índice único parcial sobre `(vigencia) WHERE estado = 'BORRADOR'`                           |
+| Regla                                                                                                                                                                                                              | CA                                                                                                                                                                                                         | Dónde vive                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `fecha_corte` no puede ser futura                                                                                                                                                                                  | CA-2                                                                                                                                                                                                       | Dominio: `Corte.validar_fecha`                                                                             |
+| No se registra si falta algún archivo obligatorio (nuevo o reutilizado)                                                                                                                                            | CA-3                                                                                                                                                                                                       | Dominio: `Corte.archivos_faltantes` / `esta_completo`                                                      |
+| PDT y Proyectos (**D-04, PENDIENTE DE RATIFICAR con la clienta**: «archivo del municipio» = plantilla de Proyectos BPIN) se reutilizan automáticamente si ya existen en un corte anterior de la **misma vigencia** | CA-5, CA-6                                                                                                                                                                                                 | Aplicación: `ServicioCortes` (D-05: reutilizar es _copiar_ filas con `corte_id` nuevo, nunca compartirlas) |
+| El archivo de EJECUCIÓN nunca se reutiliza, se solicita siempre                                                                                                                                                    | CA-7                                                                                                                                                                                                       | Aplicación                                                                                                 |
+| A lo sumo un borrador por vigencia                                                                                                                                                                                 | SUPERADA por `docs/DECISIONES.md` D9 (RATIFICADA, 2026-09-13): el criterio de unicidad es vigencia + fecha_corte exacta, no vigencia sola. Ver también D11 (RATIFICADA): un solo BORRADOR activo a la vez. | —                                                                                                          |
 
 ### Comportamiento ante error
 
