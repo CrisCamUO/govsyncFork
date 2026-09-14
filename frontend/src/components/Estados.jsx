@@ -12,17 +12,28 @@
  * cargar» y un mensaje accionable — que es justamente lo que piden
  * HU-02/CA-3, HU-03/CA-4 y HU-01/CA-3.
  */
-/*
+
 export function Cargando({ mensaje = "Cargando…" }) {
-  // TODO [UX-04] role="status" aria-live="polite"
-  return null;
+  return (
+    <div role="status" aria-live="polite">
+      <p>{mensaje}</p>
+    </div>
+  );
 }
 
 export function Vacio({ titulo, descripcion, accion }) {
-  // TODO [UX-04]
-  return null;
+  return (
+    <div className="estado-vacio">
+      {titulo && <p className="estado-vacio-titulo">{titulo}</p>}
+      {descripcion && <p className="estado-vacio-descripcion">{descripcion}</p>}
+      {accion && <div className="estado-vacio-accion">{accion}</div>}
+    </div>
+  );
 }
-*/
+
+export function SinCorrespondencia({ texto = "Sin correspondencia" }) {
+  return <span className="estado-sin-correspondencia">{texto}</span>;
+}
 
 // [UX-03] Este componente se llama igual que el `Error` nativo de JS. Si el
 // archivo que lo consume también hace `throw new Error(...)`, importar con
