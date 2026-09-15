@@ -37,6 +37,12 @@ pruebas de ese CA pasan) · `Bloqueado` (anotar por qué en Evidencia).
 > suite. Confirmado en local el 2026-09-13: `pytest` completo, 97 passed
 > (ver la fila "Fusión 2026-09-13" al inicio de esta sección).
 
+> Nota (2026-09-14): `frontend/src/api/cliente.js` implementa `crearCorte`,
+> `listarCortes`, `obtenerCorte` como consumo de CA-1/CA-2/CA-8 — no cambia
+> su estado, la evidencia de esos CA sigue siendo la del backend.
+> `registrarCorte`, `cargarArchivo` y `matriz` quedan como TODO explícito en
+> el propio archivo, citando su bloqueo real.
+
 ## E-02 / HU-02 — Cargar Plan Indicativo (3 SP)
 
 > Numeración reconciliada el 2026-09-08 con Trello, `PLANDETRABAJO.md` y el
