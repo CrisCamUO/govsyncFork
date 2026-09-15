@@ -43,6 +43,7 @@ Ver docs/DATOS.md para el detalle medido.
 
 from __future__ import annotations
 
+import unicodedata
 from decimal import Decimal
 
 import pandas as pd
@@ -84,13 +85,48 @@ def leer_hoja(contenido: bytes, hoja: str, fila_encabezado: int) -> pd.DataFrame
     raise NotImplementedError("[HU-02][BE-01]")
 
 
+def _normalizar_para_comparar(texto: str) -> str:
+    """Normalización de comparación, SOLO para resolver alias en esta función.
+
+    No reemplaza a `normalizar_encabezado` ([HU-02][BE-01], todavía sin
+    implementar): esta función no puede depender de un stub que lanza
+    `NotImplementedError`, así que resuelve sus propias comparaciones de forma
+    autocontenida. Cuando BE-01 exista, decidir ahí si conviene consolidar.
+
+    Quita tildes, colapsa espacios/saltos de línea y pasa a minúsculas (ver
+    peculiaridad 3 de este módulo: encabezados con tildes y espacios
+    inconsistentes entre cortes).
+    """
+    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return " ".join(sin_tildes.split()).casefold()
+
+
 def mapear_columnas(df: pd.DataFrame, requeridas: dict[str, tuple[str, ...]]) -> dict[str, str]:
     """Resuelve nombres lógicos -> nombres reales de columna, por alias.
 
     Es lo que hace equivalentes 'CodigoIndicadorCcpet' y 'Cod Indicador Ccpet'
     sin duplicar columnas (HU-03/CA-3, HU-07).
+
+    Best-effort: si ningún alias de una clave lógica aparece en `df`, esa
+    clave simplemente no queda en el resultado. El rechazo formal por columna
+    faltante es responsabilidad de `exigir_columnas` ([HU-02][BE-02]), no de
+    esta función — mantiene una sola responsabilidad por función.
+
+    La comparación tolera diferencias de tildes, mayúsculas y espacios (ver
+    peculiaridad 3); ante varios alias presentes para la misma clave lógica,
+    gana el primero en el orden declarado en `requeridas`.
     """
-    raise NotImplementedError("[HU-03][BE-03]")
+    columnas_reales = list(df.columns)
+    normalizadas = {_normalizar_para_comparar(str(c)): c for c in columnas_reales}
+
+    resultado: dict[str, str] = {}
+    for logico, alias in requeridas.items():
+        for candidato in alias:
+            real = normalizadas.get(_normalizar_para_comparar(candidato))
+            if real is not None:
+                resultado[logico] = real
+                break
+    return resultado
 
 
 def exigir_columnas(

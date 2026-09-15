@@ -57,7 +57,7 @@ pruebas de ese CA pasan) · `Bloqueado` (anotar por qué en Evidencia).
 | ------------------------------------------------------- | ---------------------------------- | ---------------------------------- | --------- | ------ | --------- |
 | CA-1 (endpoint)                                         | `[HU-03][FE-01]`                   | `cortes/api/router.py`             | Pendiente | —      | —         |
 | CA-2 (procesa ambas pestañas sin exigir carga separada) | `[HU-03][BE-01]`, `[HU-03][FE-02]` | `lectores/ejecucion.py`            | Pendiente | —      | —         |
-| CA-3 (equivalencia de nombres de columna de indicador)  | `[HU-03][BE-03]`                   | `_comun.py::mapear_columnas`       | Pendiente | —      | —         |
+| CA-3 (equivalencia de nombres de columna de indicador)  | `[HU-03][BE-03]`                   | `_comun.py::mapear_columnas`       | Implementado/Probado | `test_lectores_comun.py` (7 pruebas) | Solo `mapear_columnas`; no depende de `resolver_hoja`/`abrir_libro` (`[HU-02][BE-01]`/`[HU-03][BE-01]`, sin implementar) |
 | CA-4 (rechazo por pestaña faltante, nombrada)           | `[HU-03][BE-04]`                   | `lectores/ejecucion.py::leer`      | Pendiente | —      | —         |
 | CA-5 (rechazo por archivo incorrecto)                   | `[HU-03][BE-05]`                   | idem                               | Pendiente | —      | —         |
 | CA-6 (confirmación reporta ambas pestañas por separado) | `[HU-03][FE-02]`                   | `pages/NuevoCorte.jsx`             | Pendiente | —      | —         |
