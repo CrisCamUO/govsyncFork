@@ -27,7 +27,6 @@ export class ErrorApi extends Error {
     this.detalles = detalles ?? {};
   }
 }
-// eslint-disable-next-line no-unused-vars -- UX-01 define el helper; FE-01 lo consumirá.
 async function solicitar(ruta, { metodo = "GET", cuerpo, archivo } = {}) {
   const headers = {
     Accept: "application/json",
@@ -81,7 +80,37 @@ async function solicitar(ruta, { metodo = "GET", cuerpo, archivo } = {}) {
 }
 
 export const api = {
-  // TODO [HU-01][FE-01] crearCorte, listarCortes, obtenerCorte, registrarCorte
-  // TODO [HU-02..04][FE-01] cargarArchivo(corteId, tipo, archivo)
-  // TODO [HU-07][FE-01] matriz(corteId, pagina, tamanoPagina)
+  /**
+   * HU-01/CA-1, CA-2. Crea un corte en estado BORRADOR.
+   *
+   * `fechaCorte` viaja como `fecha_corte` porque así lo declara el DTO
+   * `CorteEntrada` del backend (cortes/api/router.py). Formato "YYYY-MM-DD".
+   * Una fecha futura no se valida aquí: el dominio la rechaza con un 422 que
+   * trae `detalles.fecha_corte` y `detalles.hoy`.
+   */
+  crearCorte: (vigencia, fechaCorte) =>
+    solicitar("/api/v1/cortes", {
+      metodo: "POST",
+      cuerpo: { vigencia, fecha_corte: fechaCorte },
+    }),
+
+  /** HU-01/CA-8. Histórico completo de cortes. */
+  listarCortes: () => solicitar("/api/v1/cortes"),
+
+  /**
+   * HU-01/CA-8. Detalle de un corte. Un id inexistente devuelve 404 con
+   * `codigo: "recurso_no_encontrado"`.
+   */
+  obtenerCorte: (id) => solicitar(`/api/v1/cortes/${id}`),
+
+  // TODO [HU-01][FE-01] registrarCorte(id) -> POST /cortes/{id}/registrar.
+  //      BLOQUEADO: el endpoint no existe todavía. Depende de [HU-01][BE-05],
+  //      donde Corte.registrar() y ServicioCortes.registrar_corte() siguen en
+  //      NotImplementedError.
+  // TODO [HU-02..04][FE-01] cargarArchivo(corteId, tipo, archivo) ->
+  //      POST /cortes/{id}/archivos/{tipo}. BLOQUEADO: el endpoint no existe
+  //      ([HU-02..04][BE-04/BE-06]); no hay ningún UploadFile en el backend.
+  //      `solicitar` ya trae lista la rama FormData con el campo "archivo".
+  // TODO [HU-07][FE-01] matriz(corteId, pagina, tamanoPagina). BLOQUEADO: el
+  //      router de trazabilidad no está montado en main.py.
 };
