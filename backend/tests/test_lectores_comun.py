@@ -1,0 +1,117 @@
+"""Pruebas de las utilidades compartidas de lectura de Excel.
+
+TARJETA: [HU-02][BE-01]
+CUBRE: HU-02 / CA-2 (localizar y leer la pestaña correcta del PDT). El
+rechazo por columnas faltantes (CA-3) es [HU-02][BE-02], la siguiente
+tarjeta; aquí solo se prueba la mecánica genérica de encontrar y leer.
+"""
+
+from __future__ import annotations
+
+import io
+
+import pytest
+from openpyxl import Workbook
+
+from app.modules.ingesta.persistence.lectores import _comun
+from app.shared.errors import ArchivoInvalido
+from tests.fabricas import HOJA_PDT, HOJAS_SENUELO_PDT, construir_pdt
+
+ALIAS_HOJA_PDT = ("Plan indicativo - Productos", "Plan indicativo Productos")
+
+
+class TestNormalizarEncabezado:
+    def test_quita_tildes_mayusculas_y_colapsa_espacios(self) -> None:
+        assert _comun.normalizar_encabezado(" Código  de\nIndicador ") == "codigo de indicador"
+
+    def test_valores_vacios_devuelven_cadena_vacia(self) -> None:
+        assert _comun.normalizar_encabezado(None) == ""
+        assert _comun.normalizar_encabezado(float("nan")) == ""
+
+
+class TestResolverHoja:
+    def test_encuentra_la_hoja_por_nombre_exacto(self) -> None:
+        nombres = [*HOJAS_SENUELO_PDT, HOJA_PDT]
+        assert _comun.resolver_hoja(nombres, ALIAS_HOJA_PDT) == HOJA_PDT
+
+    def test_encuentra_la_hoja_truncada_a_31_caracteres(self) -> None:
+        # Peculiaridad real: Excel trunca el nombre de hoja de ejecución.
+        nombres = ["Formato Resumido Ejecucion Gast"]
+        alias = ("Formato Resumido Ejecucion Gasto",)
+        assert _comun.resolver_hoja(nombres, alias) == "Formato Resumido Ejecucion Gast"
+
+    def test_no_confunde_con_una_hoja_de_nombre_parecido(self) -> None:
+        # "Plan indicativo SGR - Productos" no es "Plan indicativo - Productos".
+        nombres = ["Plan indicativo SGR - Productos", "Otra hoja"]
+        assert _comun.resolver_hoja(nombres, ALIAS_HOJA_PDT) is None
+
+    def test_ninguna_coincide_devuelve_none(self) -> None:
+        assert _comun.resolver_hoja(["Hoja1"], ALIAS_HOJA_PDT) is None
+
+
+class TestAbrirLibro:
+    def test_abre_un_libro_valido(self) -> None:
+        libro = _comun.abrir_libro(construir_pdt(), "pdt.xlsx")
+        assert HOJA_PDT in libro.sheetnames
+
+    def test_rechaza_contenido_que_no_es_un_libro(self) -> None:
+        with pytest.raises(ArchivoInvalido):
+            _comun.abrir_libro(b"esto no es un xlsx", "pdt.xlsx")
+
+
+class TestLocalizarFilaEncabezado:
+    def test_salta_la_fila_de_titulo_de_seccion(self) -> None:
+        fila = _comun.localizar_fila_encabezado(
+            construir_pdt(),
+            HOJA_PDT,
+            requeridas=("Código de indicador de producto (MGA)", "Principal"),
+        )
+        assert fila == 1  # fila 0 = título de sección, fila 1 = encabezado real
+
+    def test_columnas_inexistentes_lanza_archivo_invalido(self) -> None:
+        with pytest.raises(ArchivoInvalido):
+            _comun.localizar_fila_encabezado(
+                construir_pdt(), HOJA_PDT, requeridas=("Una columna que no existe",)
+            )
+
+    def test_hoja_inexistente_lanza_archivo_invalido(self) -> None:
+        with pytest.raises(ArchivoInvalido):
+            _comun.localizar_fila_encabezado(
+                construir_pdt(), "Hoja que no existe", requeridas=("Principal",)
+            )
+
+
+class TestLeerHoja:
+    def test_lee_como_texto_sin_perder_ceros_a_la_izquierda(self) -> None:
+        df = _comun.leer_hoja(construir_pdt(), HOJA_PDT, fila_encabezado=1)
+        codigos = df["codigo de indicador de producto (mga)"].tolist()
+        assert "040110500" in codigos
+
+    def test_no_confunde_el_codigo_sistp_con_la_llave(self) -> None:
+        df = _comun.leer_hoja(construir_pdt(), HOJA_PDT, fila_encabezado=1)
+        assert "IP-63" in df["codigo de indicador de producto (sispt)"].tolist()
+
+    def test_descarta_filas_totalmente_vacias(self) -> None:
+        libro = Workbook()
+        hoja = libro.active
+        hoja.title = "Datos"
+        hoja.append(["col1", "col2"])
+        hoja.append(["a", "1"])
+        hoja.append([None, None])
+        hoja.append(["b", "2"])
+        buffer = io.BytesIO()
+        libro.save(buffer)
+
+        df = _comun.leer_hoja(buffer.getvalue(), "Datos", fila_encabezado=0)
+
+        assert df["col1"].tolist() == ["a", "b"]
+
+
+class TestTexto:
+    def test_limpia_espacios_pero_conserva_tildes(self) -> None:
+        assert _comun.texto("  Vías  ") == "Vías"
+
+    def test_valores_vacios_devuelven_none(self) -> None:
+        assert _comun.texto(None) is None
+        assert _comun.texto("   ") is None
+        assert _comun.texto(float("nan")) is None

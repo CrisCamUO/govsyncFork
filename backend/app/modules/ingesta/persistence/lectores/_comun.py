@@ -43,45 +43,134 @@ Ver docs/DATOS.md para el detalle medido.
 
 from __future__ import annotations
 
+import io
+import re
+import unicodedata
+import zipfile
 from decimal import Decimal
 
+import openpyxl
 import pandas as pd
+
+from app.shared.errors import ArchivoInvalido
 
 
 def normalizar_encabezado(texto: object) -> str:
-    """Quita tildes, colapsa espacios y saltos de línea, pasa a minúsculas."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Quita tildes, colapsa espacios y saltos de línea, pasa a minúsculas.
+
+    Para COMPARAR (nombre de hoja, nombre de columna) contra un alias
+    declarado en el código — no para datos que se muestran a la
+    administradora (para eso está `texto()`, que preserva el original).
+    """
+    if texto is None:
+        return ""
+    if isinstance(texto, float) and texto != texto:  # NaN
+        return ""
+    sin_tildes = unicodedata.normalize("NFKD", str(texto))
+    sin_tildes = "".join(c for c in sin_tildes if not unicodedata.combining(c))
+    colapsado = re.sub(r"\s+", " ", sin_tildes).strip()
+    return colapsado.lower()
 
 
 def abrir_libro(contenido: bytes, nombre_archivo: str):
-    """Abre el .xlsx validando que sea realmente un libro de Excel.
+    """Abre el .xlsx como libro de solo lectura.
 
-    SEGURIDAD [SEC-03]: no confiar en la extensión ni en el Content-Type que
-    declara el cliente; validar la firma real del archivo (un .xlsx es un ZIP:
-    empieza por 'PK'). Usar read_only=True y data_only=True para no evaluar
-    fórmulas y acotar el uso de memoria.
+    SEGURIDAD [SEC-03]: la firma real del archivo y la ausencia de macros ya
+    se validaron en `cortes/application/validacion_archivos.py` ANTES de que
+    el contenido llegue aquí — esta función no repite esa validación. Si algo
+    igual sale mal al abrir (defensa en profundidad, no la ruta esperada), se
+    traduce a `ArchivoInvalido` en vez de dejar escapar la excepción cruda de
+    openpyxl/zipfile.
+
+    `read_only=True` y `data_only=True`: no evalúa fórmulas ni carga estilos,
+    acota el uso de memoria en archivos grandes.
     """
-    raise NotImplementedError("[SEC-03] / [HU-02][BE-01]")
+    try:
+        return openpyxl.load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
+    except (zipfile.BadZipFile, KeyError, ValueError) as exc:
+        detalle = f" «{nombre_archivo}»" if nombre_archivo else ""
+        raise ArchivoInvalido(
+            f"No se pudo abrir el archivo{detalle} como libro de Excel.",
+            detalles={"motivo": "libro_no_abre"},
+        ) from exc
 
 
 def resolver_hoja(nombres_reales: list[str], alias: tuple[str, ...]) -> str | None:
     """Encuentra la hoja cuyo nombre coincide con alguno de los alias.
 
-    Compara normalizado y también por prefijo (ver peculiaridad 2 arriba).
+    Compara normalizado y también por prefijo, en las dos direcciones (ver
+    peculiaridad 2 arriba): el nombre real puede ser el alias truncado a 31
+    caracteres por Excel, o viceversa si el alias declarado es más corto.
+    Coincidencia exacta tiene prioridad sobre coincidencia por prefijo.
     """
-    raise NotImplementedError("[HU-03][BE-01]")
+    alias_normalizados = [normalizar_encabezado(a) for a in alias]
+
+    for nombre in nombres_reales:
+        if normalizar_encabezado(nombre) in alias_normalizados:
+            return nombre
+
+    for nombre in nombres_reales:
+        normalizado = normalizar_encabezado(nombre)
+        for alias_norm in alias_normalizados:
+            if normalizado.startswith(alias_norm) or alias_norm.startswith(normalizado):
+                return nombre
+
+    return None
 
 
 def localizar_fila_encabezado(
     contenido: bytes, hoja: str, requeridas: tuple[str, ...], max_filas: int = 8
 ) -> int:
-    """Detecta en qué fila está el encabezado real (peculiaridad 1)."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Detecta en qué fila está el encabezado real (peculiaridad 1).
+
+    Recorre las primeras `max_filas` filas de `hoja` y devuelve el índice
+    (0-based, coincide con el parámetro `header` de `pandas.read_excel`) de
+    la primera que contenga TODAS las columnas de `requeridas` — sin asumir
+    un número de fila fijo, porque el PDT trae una fila de título de sección
+    encima y el archivo de ejecución no.
+    """
+    libro = abrir_libro(contenido, "")
+    try:
+        try:
+            ws = libro[hoja]
+        except KeyError as exc:
+            raise ArchivoInvalido(
+                f"La hoja «{hoja}» no existe en el archivo.",
+                detalles={"motivo": "hoja_no_encontrada", "hoja": hoja},
+            ) from exc
+
+        requeridas_norm = {normalizar_encabezado(r) for r in requeridas}
+        for indice, fila in enumerate(ws.iter_rows(max_row=max_filas, values_only=True)):
+            valores_norm = {normalizar_encabezado(v) for v in fila if v is not None}
+            if requeridas_norm <= valores_norm:
+                return indice
+
+        raise ArchivoInvalido(
+            f"No se encontró la fila de encabezado en la hoja «{hoja}»; "
+            f"se esperaban las columnas: {', '.join(requeridas)}.",
+            detalles={"motivo": "encabezado_no_encontrado", "hoja": hoja},
+        )
+    finally:
+        libro.close()
 
 
 def leer_hoja(contenido: bytes, hoja: str, fila_encabezado: int) -> pd.DataFrame:
-    """Lee una hoja completa COMO TEXTO y descarta filas totalmente vacías."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Lee una hoja completa COMO TEXTO y descarta filas totalmente vacías.
+
+    `dtype=str` no es opcional (ver la REGLA NO NEGOCIABLE del docstring del
+    módulo): sin ella, pandas infiere int64 en las columnas de código y
+    destruye los ceros a la izquierda antes de que `CodigoIndicadorProducto`
+    tenga oportunidad de recuperarlos.
+    """
+    df = pd.read_excel(
+        io.BytesIO(contenido),
+        sheet_name=hoja,
+        header=fila_encabezado,
+        dtype=str,
+        engine="openpyxl",
+    )
+    df.columns = [normalizar_encabezado(c) for c in df.columns]
+    return df.dropna(how="all")
 
 
 def mapear_columnas(df: pd.DataFrame, requeridas: dict[str, tuple[str, ...]]) -> dict[str, str]:
@@ -108,8 +197,18 @@ def exigir_columnas(
 
 
 def texto(valor: object) -> str | None:
-    """Normaliza una celda a texto limpio, o None si está vacía."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Normaliza una celda a texto limpio, o None si está vacía.
+
+    A diferencia de `normalizar_encabezado`, conserva mayúsculas y tildes: es
+    para datos que se muestran a la administradora (nombre de producto), no
+    para comparar contra un alias declarado en el código.
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, float) and valor != valor:  # NaN
+        return None
+    limpio = str(valor).strip()
+    return limpio or None
 
 
 def numero(valor: object) -> Decimal | None:

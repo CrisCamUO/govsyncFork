@@ -42,9 +42,56 @@ def _a_bytes(libro: Workbook) -> bytes:
     return buffer.getvalue()
 
 
+#: Nombre real de la pestaña de metas (docstring de lectores/pdt.py).
+HOJA_PDT = "Plan indicativo - Productos"
+#: Las otras 5 pestañas del archivo real, que NO se interpretan como metas.
+HOJAS_SENUELO_PDT = (
+    "Líneas estratégicas",
+    "Indicadores de resultado",
+    "Plan indicativo SGR - Productos",
+    "Iniciativas SGR",
+    "Iniciativas PATR",
+)
+
+
 def construir_pdt(*, incluir_principal: bool = True) -> bytes:
-    """PDT válido, o una variante sin una columna obligatoria (HU-02/CA-3)."""
-    raise NotImplementedError("[HU-02] fixture")
+    """PDT válido, o una variante sin una columna obligatoria (HU-02/CA-3).
+
+    Reproduce dos peculiaridades reales: una fila de título de sección
+    ('PARTE ESTRATÉGICA') encima del encabezado, y la columna SisPT con
+    valores tipo 'IP-63' que NO es la llave de cruce.
+    """
+    libro = Workbook()
+    libro.remove(libro.active)
+
+    for nombre in HOJAS_SENUELO_PDT:
+        libro.create_sheet(nombre)["A1"] = "esta hoja no trae metas"
+
+    hoja = libro.create_sheet(HOJA_PDT)
+    hoja.append(["PARTE ESTRATÉGICA"])  # peculiaridad 1: título de sección
+
+    encabezados = [
+        "Código de indicador de producto (MGA)",
+        "Código de indicador de producto (SisPT)",
+        "Producto (MGA)",
+        "Indicador de Producto(MGA)",
+    ]
+    if incluir_principal:
+        encabezados.append("Principal")
+    encabezados += ["Programación del producto bien o servicio 2026", "Total 2026"]
+    hoja.append(encabezados)
+
+    fila_a = ["040110500", "IP-63", "Vías terciarias mantenidas", "Kilómetros"]
+    if incluir_principal:
+        fila_a.append("Sí")
+    hoja.append([*fila_a, 10, 1218264452])
+
+    fila_b = [COD_A, "IP-40", "Entidades asistidas técnicamente", "Número"]
+    if incluir_principal:
+        fila_b.append("No")
+    hoja.append([*fila_b, 5, 230000000])
+
+    return _a_bytes(libro)
 
 
 def construir_ejecucion(
