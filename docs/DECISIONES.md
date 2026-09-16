@@ -328,3 +328,22 @@ dueño, mapeo 409 en `core/errores.py`.
 
 **Registrado:** 2026-09-13.
 **Ratificado:** 2026-09-13 por el equipo.
+
+---
+
+## D12 · Límite de tamaño de archivo verificado en el cliente
+
+**Decisión:** el frontend rechaza, antes de intentar subir, cualquier
+archivo mayor a 2.097.152 bytes (2 MB) — aviso inmediato en
+`CargaDeArchivo.jsx`, sin llamar a `onCargar`.
+
+**Motivo:** los archivos reales de la clienta hoy pesan menos de 200 KB;
+2 MB da un margen ~10x para crecimiento sin retrasar el aviso de error
+hasta después de un viaje de red completo. Coherente con el límite real de
+`[SEC-03]` (`backend/app/core/config.py::max_upload_bytes`, 25 MB) — el del
+cliente es más conservador, no lo reemplaza ni lo duplica.
+
+**Estado:** RATIFICADA.
+
+**Registrado:** 2026-09-15.
+**Ratificado:** 2026-09-15, acordado con Cristhian.
