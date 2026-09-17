@@ -59,11 +59,21 @@ ALIAS_EJECUCION = (
 )
 ALIAS_CONTRATACION = ("CONTRATACION", "CONTRATACIÓN")
 
-# TODO [HU-03][BE-03] Las dos grafías del código de indicador son EL MISMO
-# dato y se resuelven por alias, sin duplicar columnas:
-#     "cod_indicador_producto": ("CodigoIndicadorCcpet", "Cod Indicador Ccpet")
-OBLIGATORIAS_EJECUCION: dict[str, tuple[str, ...]] = {}
-OBLIGATORIAS_CONTRATACION: dict[str, tuple[str, ...]] = {}
+# [HU-03][BE-03]: las dos grafías del código de indicador son EL MISMO dato;
+# se declaran ambas en las dos pestañas porque `mapear_columnas` (_comun.py)
+# resuelve por alias sin duplicar columnas — cada pestaña real solo tendrá
+# una de las dos grafías, nunca ambas.
+_ALIAS_COD_INDICADOR_PRODUCTO = ("CodigoIndicadorCcpet", "Cod Indicador Ccpet")
+
+# TODO [HU-03][BE-04] Completar con el resto de columnas obligatorias de cada
+# pestaña (documentadas en el docstring del módulo); solo se declaró aquí el
+# alias que le corresponde a [HU-03][BE-03].
+OBLIGATORIAS_EJECUCION: dict[str, tuple[str, ...]] = {
+    "cod_indicador_producto": _ALIAS_COD_INDICADOR_PRODUCTO,
+}
+OBLIGATORIAS_CONTRATACION: dict[str, tuple[str, ...]] = {
+    "cod_indicador_producto": _ALIAS_COD_INDICADOR_PRODUCTO,
+}
 
 
 class LectorEjecucion(LectorArchivoFuente):
