@@ -43,62 +43,134 @@ Ver docs/DATOS.md para el detalle medido.
 
 from __future__ import annotations
 
+import io
+import re
 import unicodedata
+import zipfile
 from decimal import Decimal
 
+import openpyxl
 import pandas as pd
+
+from app.shared.errors import ArchivoInvalido
 
 
 def normalizar_encabezado(texto: object) -> str:
-    """Quita tildes, colapsa espacios y saltos de línea, pasa a minúsculas."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Quita tildes, colapsa espacios y saltos de línea, pasa a minúsculas.
+
+    Para COMPARAR (nombre de hoja, nombre de columna) contra un alias
+    declarado en el código — no para datos que se muestran a la
+    administradora (para eso está `texto()`, que preserva el original).
+    """
+    if texto is None:
+        return ""
+    if isinstance(texto, float) and texto != texto:  # NaN
+        return ""
+    sin_tildes = unicodedata.normalize("NFKD", str(texto))
+    sin_tildes = "".join(c for c in sin_tildes if not unicodedata.combining(c))
+    colapsado = re.sub(r"\s+", " ", sin_tildes).strip()
+    return colapsado.lower()
 
 
 def abrir_libro(contenido: bytes, nombre_archivo: str):
-    """Abre el .xlsx validando que sea realmente un libro de Excel.
+    """Abre el .xlsx como libro de solo lectura.
 
-    SEGURIDAD [SEC-03]: no confiar en la extensión ni en el Content-Type que
-    declara el cliente; validar la firma real del archivo (un .xlsx es un ZIP:
-    empieza por 'PK'). Usar read_only=True y data_only=True para no evaluar
-    fórmulas y acotar el uso de memoria.
+    SEGURIDAD [SEC-03]: la firma real del archivo y la ausencia de macros ya
+    se validaron en `cortes/application/validacion_archivos.py` ANTES de que
+    el contenido llegue aquí — esta función no repite esa validación. Si algo
+    igual sale mal al abrir (defensa en profundidad, no la ruta esperada), se
+    traduce a `ArchivoInvalido` en vez de dejar escapar la excepción cruda de
+    openpyxl/zipfile.
+
+    `read_only=True` y `data_only=True`: no evalúa fórmulas ni carga estilos,
+    acota el uso de memoria en archivos grandes.
     """
-    raise NotImplementedError("[SEC-03] / [HU-02][BE-01]")
+    try:
+        return openpyxl.load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
+    except (zipfile.BadZipFile, KeyError, ValueError) as exc:
+        detalle = f" «{nombre_archivo}»" if nombre_archivo else ""
+        raise ArchivoInvalido(
+            f"No se pudo abrir el archivo{detalle} como libro de Excel.",
+            detalles={"motivo": "libro_no_abre"},
+        ) from exc
 
 
 def resolver_hoja(nombres_reales: list[str], alias: tuple[str, ...]) -> str | None:
     """Encuentra la hoja cuyo nombre coincide con alguno de los alias.
 
-    Compara normalizado y también por prefijo (ver peculiaridad 2 arriba).
+    Compara normalizado y también por prefijo, en las dos direcciones (ver
+    peculiaridad 2 arriba): el nombre real puede ser el alias truncado a 31
+    caracteres por Excel, o viceversa si el alias declarado es más corto.
+    Coincidencia exacta tiene prioridad sobre coincidencia por prefijo.
     """
-    raise NotImplementedError("[HU-03][BE-01]")
+    alias_normalizados = [normalizar_encabezado(a) for a in alias]
+
+    for nombre in nombres_reales:
+        if normalizar_encabezado(nombre) in alias_normalizados:
+            return nombre
+
+    for nombre in nombres_reales:
+        normalizado = normalizar_encabezado(nombre)
+        for alias_norm in alias_normalizados:
+            if normalizado.startswith(alias_norm) or alias_norm.startswith(normalizado):
+                return nombre
+
+    return None
 
 
 def localizar_fila_encabezado(
     contenido: bytes, hoja: str, requeridas: tuple[str, ...], max_filas: int = 8
 ) -> int:
-    """Detecta en qué fila está el encabezado real (peculiaridad 1)."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Detecta en qué fila está el encabezado real (peculiaridad 1).
+
+    Recorre las primeras `max_filas` filas de `hoja` y devuelve el índice
+    (0-based, coincide con el parámetro `header` de `pandas.read_excel`) de
+    la primera que contenga TODAS las columnas de `requeridas` — sin asumir
+    un número de fila fijo, porque el PDT trae una fila de título de sección
+    encima y el archivo de ejecución no.
+    """
+    libro = abrir_libro(contenido, "")
+    try:
+        try:
+            ws = libro[hoja]
+        except KeyError as exc:
+            raise ArchivoInvalido(
+                f"La hoja «{hoja}» no existe en el archivo.",
+                detalles={"motivo": "hoja_no_encontrada", "hoja": hoja},
+            ) from exc
+
+        requeridas_norm = {normalizar_encabezado(r) for r in requeridas}
+        for indice, fila in enumerate(ws.iter_rows(max_row=max_filas, values_only=True)):
+            valores_norm = {normalizar_encabezado(v) for v in fila if v is not None}
+            if requeridas_norm <= valores_norm:
+                return indice
+
+        raise ArchivoInvalido(
+            f"No se encontró la fila de encabezado en la hoja «{hoja}»; "
+            f"se esperaban las columnas: {', '.join(requeridas)}.",
+            detalles={"motivo": "encabezado_no_encontrado", "hoja": hoja},
+        )
+    finally:
+        libro.close()
 
 
 def leer_hoja(contenido: bytes, hoja: str, fila_encabezado: int) -> pd.DataFrame:
-    """Lee una hoja completa COMO TEXTO y descarta filas totalmente vacías."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Lee una hoja completa COMO TEXTO y descarta filas totalmente vacías.
 
-
-def _normalizar_para_comparar(texto: str) -> str:
-    """Normalización de comparación, SOLO para resolver alias en esta función.
-
-    No reemplaza a `normalizar_encabezado` ([HU-02][BE-01], todavía sin
-    implementar): esta función no puede depender de un stub que lanza
-    `NotImplementedError`, así que resuelve sus propias comparaciones de forma
-    autocontenida. Cuando BE-01 exista, decidir ahí si conviene consolidar.
-
-    Quita tildes, colapsa espacios/saltos de línea y pasa a minúsculas (ver
-    peculiaridad 3 de este módulo: encabezados con tildes y espacios
-    inconsistentes entre cortes).
+    `dtype=str` no es opcional (ver la REGLA NO NEGOCIABLE del docstring del
+    módulo): sin ella, pandas infiere int64 en las columnas de código y
+    destruye los ceros a la izquierda antes de que `CodigoIndicadorProducto`
+    tenga oportunidad de recuperarlos.
     """
-    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
-    return " ".join(sin_tildes.split()).casefold()
+    df = pd.read_excel(
+        io.BytesIO(contenido),
+        sheet_name=hoja,
+        header=fila_encabezado,
+        dtype=str,
+        engine="openpyxl",
+    )
+    df.columns = [normalizar_encabezado(c) for c in df.columns]
+    return df.dropna(how="all")
 
 
 def mapear_columnas(df: pd.DataFrame, requeridas: dict[str, tuple[str, ...]]) -> dict[str, str]:
@@ -113,16 +185,21 @@ def mapear_columnas(df: pd.DataFrame, requeridas: dict[str, tuple[str, ...]]) ->
     esta función — mantiene una sola responsabilidad por función.
 
     La comparación tolera diferencias de tildes, mayúsculas y espacios (ver
-    peculiaridad 3); ante varios alias presentes para la misma clave lógica,
-    gana el primero en el orden declarado en `requeridas`.
+    peculiaridad 3) reutilizando `normalizar_encabezado` — la misma
+    normalización que usa el resto del módulo para comparar nombres de hoja y
+    de columna, en vez de una segunda implementación paralela ([HU-03][BE-03]
+    la introdujo por separado porque en su momento `normalizar_encabezado`
+    todavía era un stub; consolidado aquí para no mantener dos normalizaciones
+    del mismo tipo de dato). Ante varios alias presentes para la misma clave
+    lógica, gana el primero en el orden declarado en `requeridas`.
     """
     columnas_reales = list(df.columns)
-    normalizadas = {_normalizar_para_comparar(str(c)): c for c in columnas_reales}
+    normalizadas = {normalizar_encabezado(str(c)): c for c in columnas_reales}
 
     resultado: dict[str, str] = {}
     for logico, alias in requeridas.items():
         for candidato in alias:
-            real = normalizadas.get(_normalizar_para_comparar(candidato))
+            real = normalizadas.get(normalizar_encabezado(candidato))
             if real is not None:
                 resultado[logico] = real
                 break
@@ -139,13 +216,41 @@ def exigir_columnas(
 
     HU-02/CA-3: el rechazo es total y el mensaje dice QUÉ falta. No se
     incorporan datos parciales.
+
+    No resuelve el `mapeo` (eso es `mapear_columnas`, [HU-03][BE-03]): solo
+    verifica que cada nombre lógico de `obligatorias` haya sido resuelto. Los
+    alias de `obligatorias` no se usan para buscar — solo para nombrar la
+    columna que falta en un mensaje legible.
     """
-    raise NotImplementedError("[HU-02][BE-02]")
+    faltantes = [logico for logico in obligatorias if logico not in mapeo]
+    if not faltantes:
+        return
+
+    nombres_legibles = [obligatorias[logico][0] for logico in faltantes]
+    raise ArchivoInvalido(
+        f"«{nombre_archivo}» no tiene las columnas obligatorias de «{hoja}»: "
+        f"{', '.join(nombres_legibles)}.",
+        detalles={
+            "motivo": "columnas_faltantes",
+            "hoja": hoja,
+            "columnas_faltantes": nombres_legibles,
+        },
+    )
 
 
 def texto(valor: object) -> str | None:
-    """Normaliza una celda a texto limpio, o None si está vacía."""
-    raise NotImplementedError("[HU-02][BE-01]")
+    """Normaliza una celda a texto limpio, o None si está vacía.
+
+    A diferencia de `normalizar_encabezado`, conserva mayúsculas y tildes: es
+    para datos que se muestran a la administradora (nombre de producto), no
+    para comparar contra un alias declarado en el código.
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, float) and valor != valor:  # NaN
+        return None
+    limpio = str(valor).strip()
+    return limpio or None
 
 
 def numero(valor: object) -> Decimal | None:
@@ -161,5 +266,13 @@ def rellenar_celdas_combinadas(df: pd.DataFrame, columnas: list[str]) -> pd.Data
     """Propaga hacia abajo el valor de celdas verticalmente combinadas.
 
     Ver peculiaridad 6. Sin esto, [HU-04] pierde contratos.
+
+    Excel solo guarda el valor en la celda superior izquierda de un rango
+    combinado; al leer con pandas, las demás llegan como None/NaN. `ffill()`
+    propaga el último valor no nulo de cada columna hacia abajo, en el mismo
+    orden en que aparecen las filas en el archivo — que es exactamente lo que
+    Excel muestra visualmente para una celda combinada.
     """
-    raise NotImplementedError("[HU-04][BE-01]")
+    df = df.copy()
+    df[columnas] = df[columnas].ffill()
+    return df

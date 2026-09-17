@@ -112,9 +112,25 @@ class ServicioCortes:
         """HU-02, HU-03, HU-04 y HU-06 (reemplazo del archivo)."""
         raise NotImplementedError("[HU-02][BE-04] / [HU-03][BE-06] / [HU-04][BE-04]")
 
-    def registrar_corte(self, corte_id):
-        """HU-01 / CA-3 y CA-4."""
-        raise NotImplementedError("[HU-01][BE-05]")
+    def registrar_corte(self, corte_id) -> Corte:
+        """HU-01 / CA-3 y CA-4.
+
+        La regla (que archivos exige, que mensaje da si falta alguno) vive en
+        el dominio: `Corte.registrar()` lanza OperacionNoPermitida y no
+        cambia el estado si falta algo. Aqui solo se orquesta: buscar,
+        delegar la regla, persistir la transicion y confirmar la transaccion.
+        """
+        corte = self._cortes.obtener(corte_id)
+        if corte is None:
+            raise RecursoNoEncontrado(f"No existe un corte con id {corte_id}.")
+        corte.registrar()
+        try:
+            self._cortes.confirmar_registro(corte)
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return corte
 
     def listar_cortes(self) -> list[Corte]:
         return self._cortes.listar()

@@ -12,8 +12,8 @@ from datetime import date
 
 import pytest
 
-from app.modules.cortes.domain.entidades import Corte, TipoArchivoFuente
-from app.shared.errors import ReglaDeNegocioViolada
+from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCorte, TipoArchivoFuente
+from app.shared.errors import OperacionNoPermitida, ReglaDeNegocioViolada
 
 
 def test_rechaza_fecha_futura_con_motivo():
@@ -58,3 +58,65 @@ def test_puede_reutilizar_rechaza_ejecucion():
     corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
 
     assert corte.puede_reutilizar(TipoArchivoFuente.EJECUCION) is False
+
+
+def _archivo(tipo: TipoArchivoFuente) -> ArchivoFuente:
+    return ArchivoFuente(tipo=tipo, nombre_archivo=f"{tipo.value.lower()}.xlsx")
+
+
+class TestRegistrar:
+    def test_rechaza_corte_nuevo_nombrando_los_tres_faltantes(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        with pytest.raises(OperacionNoPermitida) as exc_info:
+            corte.registrar()
+
+        assert set(exc_info.value.detalles["archivos_faltantes"]) == {
+            TipoArchivoFuente.PDT.value,
+            TipoArchivoFuente.EJECUCION.value,
+            TipoArchivoFuente.PROYECTOS.value,
+        }
+        assert corte.estado == EstadoCorte.BORRADOR
+
+    def test_rechaza_nombrando_solo_el_que_falta(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        corte.archivos[TipoArchivoFuente.PDT] = _archivo(TipoArchivoFuente.PDT)
+        corte.archivos[TipoArchivoFuente.PROYECTOS] = _archivo(TipoArchivoFuente.PROYECTOS)
+
+        with pytest.raises(OperacionNoPermitida) as exc_info:
+            corte.registrar()
+
+        assert exc_info.value.detalles["archivos_faltantes"] == [TipoArchivoFuente.EJECUCION.value]
+        assert corte.estado == EstadoCorte.BORRADOR
+
+    def test_registra_cuando_estan_los_tres_archivos(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        for tipo in TipoArchivoFuente:
+            corte.archivos[tipo] = _archivo(tipo)
+
+        corte.registrar()
+
+        assert corte.estado == EstadoCorte.REGISTRADO
+
+    def test_registra_igual_si_alguna_fuente_fue_reutilizada(self):
+        """CA-3/CA-5: no importa si el archivo es nuevo o reutilizado, solo que esté."""
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        for tipo in TipoArchivoFuente:
+            corte.archivos[tipo] = ArchivoFuente(
+                tipo=tipo,
+                nombre_archivo="x.xlsx",
+                reutilizado=(tipo != TipoArchivoFuente.EJECUCION),
+            )
+
+        corte.registrar()
+
+        assert corte.estado == EstadoCorte.REGISTRADO
+
+    def test_registrar_un_corte_ya_registrado_es_idempotente(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8), estado=EstadoCorte.REGISTRADO)
+        for tipo in TipoArchivoFuente:
+            corte.archivos[tipo] = _archivo(tipo)
+
+        corte.registrar()
+
+        assert corte.estado == EstadoCorte.REGISTRADO

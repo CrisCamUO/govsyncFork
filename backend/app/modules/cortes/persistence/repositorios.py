@@ -16,8 +16,10 @@ ALCANCE DE ESTA ENTREGA
 =============================================================================
 `RepositorioCortesSQL` queda completo (los seis métodos del puerto). La etapa
 Load (`RepositorioDatosCorteSQL`) se implementa con cada tarjeta que la
-consume: `reemplazar_metas` con [HU-02][BE-04], `reemplazar_presupuesto` con
-[HU-03][BE-06], `reemplazar_proyectos` y `copiar_datos` con [HU-04]/[HU-01][BE-04].
+consume: `copiar_datos` con [BD-03] (bug activo detectado en producción: HU-01/
+CA-5, ya mergeado, lo llama sin protección — ver docs/TRAZABILIDAD.md),
+`reemplazar_metas` con [HU-02][BE-04], `reemplazar_presupuesto` con
+[HU-03][BE-06], `reemplazar_proyectos` con [HU-04][BE-04].
 
 =============================================================================
 TRAMPA CONOCIDA — LEER ANTES DE ESCRIBIR reemplazar_presupuesto
@@ -47,7 +49,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCorte, TipoArchivoFuente
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
-from app.modules.cortes.persistence.models import ArchivoFuenteORM, CorteORM
+from app.modules.cortes.persistence.models import (
+    ArchivoFuenteORM,
+    CorteORM,
+    MetaORM,
+    MetaProgramacionFisicaORM,
+    ProgramacionFinancieraORM,
+    ProyectoIndicadorORM,
+    ProyectoORM,
+)
 from app.shared.errors import RecursoNoEncontrado
 
 
@@ -191,4 +201,119 @@ class RepositorioDatosCorteSQL(RepositorioDatosCorte):
     def copiar_datos(
         self, origen_id: uuid.UUID, destino_id: uuid.UUID, tipo: TipoArchivoFuente
     ) -> int:
-        raise NotImplementedError("[HU-01][BE-04] Copia física de una fuente reutilizada")
+        """Copia física de los datos de `tipo` (HU-01/CA-5). [BD-03].
+
+        Genera IDs nuevos para cada fila copiada: cada corte es una fotografía
+        independiente, ninguna fila puede pertenecer a dos cortes a la vez.
+        Solo PDT y PROYECTOS son copiables (`puede_reutilizar` en entidades.py
+        ya descarta EJECUCION antes de llegar aquí); cualquier otro tipo es un
+        error de contrato del llamador, no una regla de dominio.
+        """
+        if tipo is TipoArchivoFuente.PDT:
+            return self._copiar_metas(origen_id, destino_id)
+        if tipo is TipoArchivoFuente.PROYECTOS:
+            return self._copiar_proyectos(origen_id, destino_id)
+        raise ValueError(f"El tipo {tipo!r} no es una fuente copiable/reutilizable.")
+
+    def _copiar_metas(self, origen_id: uuid.UUID, destino_id: uuid.UUID) -> int:
+        """Copia `meta` y sus hijas (`meta_programacion_fisica`,
+        `programacion_financiera` con `meta_id`) al corte destino.
+
+        Sin relationship declarada entre MetaORM y sus hijas en models.py:
+        se resuelven con un mapa id_origen -> id_nuevo, igual a la trampa de
+        UUID documentada arriba (se genera el id ANTES de usarlo como FK).
+        """
+        metas_origen = self._s.scalars(select(MetaORM).where(MetaORM.corte_id == origen_id)).all()
+        if not metas_origen:
+            return 0
+
+        mapa_ids: dict[uuid.UUID, uuid.UUID] = {}
+        for meta in metas_origen:
+            nueva_id = uuid.uuid4()
+            mapa_ids[meta.id] = nueva_id
+            self._s.add(
+                MetaORM(
+                    id=nueva_id,
+                    corte_id=destino_id,
+                    cod_indicador_producto=meta.cod_indicador_producto,
+                    cod_indicador_sistp=meta.cod_indicador_sistp,
+                    codigo_producto_mga=meta.codigo_producto_mga,
+                    nombre_producto=meta.nombre_producto,
+                    unidad_medida=meta.unidad_medida,
+                    meta_cuatrienio=meta.meta_cuatrienio,
+                    es_principal=meta.es_principal,
+                    bpin_relacionados=meta.bpin_relacionados,
+                )
+            )
+
+        programaciones = self._s.scalars(
+            select(MetaProgramacionFisicaORM).where(
+                MetaProgramacionFisicaORM.meta_id.in_(mapa_ids.keys())
+            )
+        ).all()
+        for programacion in programaciones:
+            self._s.add(
+                MetaProgramacionFisicaORM(
+                    id=uuid.uuid4(),
+                    meta_id=mapa_ids[programacion.meta_id],
+                    anio=programacion.anio,
+                    valor_programado=programacion.valor_programado,
+                )
+            )
+
+        # Solo las financiadas por meta (el PDT programa a nivel de meta); el
+        # enlace por proyecto_id no lo llena ninguna tarjeta actual (ver el
+        # comentario de ProgramacionFinancieraORM en models.py).
+        financiera = self._s.scalars(
+            select(ProgramacionFinancieraORM).where(
+                ProgramacionFinancieraORM.meta_id.in_(mapa_ids.keys())
+            )
+        ).all()
+        for programacion in financiera:
+            self._s.add(
+                ProgramacionFinancieraORM(
+                    id=uuid.uuid4(),
+                    meta_id=mapa_ids[programacion.meta_id],
+                    proyecto_id=None,
+                    fuente=programacion.fuente,
+                    anio=programacion.anio,
+                    valor_programado=programacion.valor_programado,
+                )
+            )
+
+        self._s.flush()
+        return len(metas_origen)
+
+    def _copiar_proyectos(self, origen_id: uuid.UUID, destino_id: uuid.UUID) -> int:
+        """Copia `proyecto` y sus `proyecto_indicador` al corte destino.
+
+        A diferencia de `_copiar_metas`, `ProyectoORM.indicadores` SÍ es una
+        relationship (cascade): agregar a `nuevo.indicadores` deja que
+        SQLAlchemy resuelva el `proyecto_id` de las hijas al hacer flush, sin
+        necesidad de un mapa de ids manual.
+        """
+        proyectos_origen = self._s.scalars(
+            select(ProyectoORM)
+            .where(ProyectoORM.corte_id == origen_id)
+            .options(selectinload(ProyectoORM.indicadores))
+        ).all()
+
+        for proyecto in proyectos_origen:
+            nuevo = ProyectoORM(
+                id=uuid.uuid4(),
+                corte_id=destino_id,
+                bpin=proyecto.bpin,
+                nombre_proyecto=proyecto.nombre_proyecto,
+                indicador_producto_raw=proyecto.indicador_producto_raw,
+            )
+            for indicador in proyecto.indicadores:
+                nuevo.indicadores.append(
+                    ProyectoIndicadorORM(
+                        id=uuid.uuid4(),
+                        cod_indicador_producto=indicador.cod_indicador_producto,
+                    )
+                )
+            self._s.add(nuevo)
+
+        self._s.flush()
+        return len(proyectos_origen)
