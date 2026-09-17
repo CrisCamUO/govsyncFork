@@ -178,8 +178,32 @@ def mapear_columnas(df: pd.DataFrame, requeridas: dict[str, tuple[str, ...]]) ->
 
     Es lo que hace equivalentes 'CodigoIndicadorCcpet' y 'Cod Indicador Ccpet'
     sin duplicar columnas (HU-03/CA-3, HU-07).
+
+    Best-effort: si ningún alias de una clave lógica aparece en `df`, esa
+    clave simplemente no queda en el resultado. El rechazo formal por columna
+    faltante es responsabilidad de `exigir_columnas` ([HU-02][BE-02]), no de
+    esta función — mantiene una sola responsabilidad por función.
+
+    La comparación tolera diferencias de tildes, mayúsculas y espacios (ver
+    peculiaridad 3) reutilizando `normalizar_encabezado` — la misma
+    normalización que usa el resto del módulo para comparar nombres de hoja y
+    de columna, en vez de una segunda implementación paralela ([HU-03][BE-03]
+    la introdujo por separado porque en su momento `normalizar_encabezado`
+    todavía era un stub; consolidado aquí para no mantener dos normalizaciones
+    del mismo tipo de dato). Ante varios alias presentes para la misma clave
+    lógica, gana el primero en el orden declarado en `requeridas`.
     """
-    raise NotImplementedError("[HU-03][BE-03]")
+    columnas_reales = list(df.columns)
+    normalizadas = {normalizar_encabezado(str(c)): c for c in columnas_reales}
+
+    resultado: dict[str, str] = {}
+    for logico, alias in requeridas.items():
+        for candidato in alias:
+            real = normalizadas.get(normalizar_encabezado(candidato))
+            if real is not None:
+                resultado[logico] = real
+                break
+    return resultado
 
 
 def exigir_columnas(

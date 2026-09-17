@@ -1,9 +1,20 @@
 """Pruebas de las utilidades compartidas de lectura de Excel.
 
-TARJETA: [HU-02][BE-01]
-CUBRE: HU-02 / CA-2 (localizar y leer la pestaña correcta del PDT). El
-rechazo por columnas faltantes (CA-3) es [HU-02][BE-02], la siguiente
-tarjeta; aquí solo se prueba la mecánica genérica de encontrar y leer.
+TARJETAS: [HU-02][BE-01] (encontrar y leer la pestaña correcta del PDT),
+          [HU-03][BE-03] (mapear_columnas: unificación de los dos nombres de
+          columna del indicador), [HU-04][BE-01] (rellenar_celdas_combinadas)
+CUBRE: HU-02 / CA-2, HU-03 / CA-3 (CP-HU03-03 en docs/CASOS_DE_PRUEBA.md).
+El rechazo por columnas faltantes (CA-3 de HU-02) es [HU-02][BE-02], la
+siguiente tarjeta; aquí solo se prueba la mecánica genérica de cada función.
+
+Nota de fusión (2026-09-17): `mapear_columnas` normalizaba con una función
+propia (`_normalizar_para_comparar`) escrita cuando `normalizar_encabezado`
+todavía era un stub en la rama de [HU-03][BE-03]. Al fusionar con
+`[HU-02][BE-01]` (que sí la implementa) se consolidó `mapear_columnas` para
+reutilizar `normalizar_encabezado` en vez de mantener dos normalizaciones del
+mismo tipo de dato — ver `_comun.py::mapear_columnas`. Las pruebas de
+`mapear_columnas` de abajo son las mismas 7 que trajo esa tarjeta, sin
+cambios: la consolidación no les cambia el comportamiento observable.
 """
 
 from __future__ import annotations
@@ -15,6 +26,11 @@ import pytest
 from openpyxl import Workbook
 
 from app.modules.ingesta.persistence.lectores import _comun
+from app.modules.ingesta.persistence.lectores._comun import mapear_columnas
+from app.modules.ingesta.persistence.lectores.ejecucion import (
+    OBLIGATORIAS_CONTRATACION,
+    OBLIGATORIAS_EJECUCION,
+)
 from app.shared.errors import ArchivoInvalido
 from tests.fabricas import HOJA_PDT, HOJAS_SENUELO_PDT, construir_pdt
 
@@ -106,6 +122,58 @@ class TestLeerHoja:
         df = _comun.leer_hoja(buffer.getvalue(), "Datos", fila_encabezado=0)
 
         assert df["col1"].tolist() == ["a", "b"]
+
+
+class TestMapearColumnas:
+    """[HU-03][BE-03] · CA-3: 'CodigoIndicadorCcpet' y 'Cod Indicador Ccpet'
+    son el mismo dato, sin duplicar columnas."""
+
+    def test_reconoce_el_nombre_de_ejecucion(self) -> None:
+        df = pd.DataFrame({"CodigoIndicadorCcpet": ["040110500"], "Otra": ["x"]})
+        assert mapear_columnas(df, OBLIGATORIAS_EJECUCION) == {
+            "cod_indicador_producto": "CodigoIndicadorCcpet"
+        }
+
+    def test_reconoce_el_nombre_de_contratacion(self) -> None:
+        df = pd.DataFrame({"Cod Indicador Ccpet": ["040110500"], "Otra": ["x"]})
+        assert mapear_columnas(df, OBLIGATORIAS_CONTRATACION) == {
+            "cod_indicador_producto": "Cod Indicador Ccpet"
+        }
+
+    def test_tolera_tildes_mayusculas_y_espacios_extra(self) -> None:
+        """Peculiaridad 3 de _comun.py: encabezados inconsistentes entre cortes."""
+        df = pd.DataFrame({"  CÓDIGO INDICADOR CCPET  ": ["040110500"]})
+        requeridas = {"cod_indicador_producto": ("Codigo Indicador Ccpet",)}
+        assert mapear_columnas(df, requeridas) == {
+            "cod_indicador_producto": "  CÓDIGO INDICADOR CCPET  "
+        }
+
+    def test_columna_ausente_no_aparece_en_el_resultado(self) -> None:
+        """No rechaza: eso es responsabilidad de exigir_columnas ([HU-02][BE-02])."""
+        df = pd.DataFrame({"OtraColumna": ["x"]})
+        assert mapear_columnas(df, OBLIGATORIAS_EJECUCION) == {}
+
+    def test_diccionario_de_requeridas_vacio_devuelve_vacio(self) -> None:
+        df = pd.DataFrame({"CodigoIndicadorCcpet": ["040110500"]})
+        assert mapear_columnas(df, {}) == {}
+
+    def test_primer_alias_en_orden_gana_si_ambos_estuvieran_presentes(self) -> None:
+        """Caso borde improbable en datos reales (cada pestaña trae una sola
+        grafía), pero el comportamiento debe ser determinista, no accidental."""
+        df = pd.DataFrame({"Cod Indicador Ccpet": ["b"], "CodigoIndicadorCcpet": ["a"]})
+        requeridas = {"cod_indicador_producto": ("CodigoIndicadorCcpet", "Cod Indicador Ccpet")}
+        assert mapear_columnas(df, requeridas) == {"cod_indicador_producto": "CodigoIndicadorCcpet"}
+
+    def test_no_confunde_columnas_de_otras_claves_logicas(self) -> None:
+        df = pd.DataFrame({"CodigoIndicadorCcpet": ["a"], "NumeroContrato": ["123"]})
+        requeridas = {
+            "cod_indicador_producto": ("CodigoIndicadorCcpet", "Cod Indicador Ccpet"),
+            "numero_contrato": ("NumeroContrato",),
+        }
+        assert mapear_columnas(df, requeridas) == {
+            "cod_indicador_producto": "CodigoIndicadorCcpet",
+            "numero_contrato": "NumeroContrato",
+        }
 
 
 _OBLIGATORIAS_PRUEBA = {

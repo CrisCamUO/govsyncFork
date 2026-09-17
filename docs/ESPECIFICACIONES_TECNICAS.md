@@ -412,6 +412,24 @@ traceback interno al cliente (mismo principio de `[SEC-03]` en
 
 ---
 
+## `[UX-02]` — Requisitos de interfaz del control de carga de archivo
+
+`components/CargaDeArchivo.jsx`, compartido por `[HU-02][FE-02]`,
+`[HU-03][FE-02]`, `[HU-04][FE-02]`. Contrato mínimo de interfaz (todo es
+ayuda de UX; la validación real sigue siendo `[SEC-03]` en el backend):
+
+1. Selección por clic (`<input type="file">`) **y** por arrastrar-soltar
+   sobre la misma zona — el arrastre es un atajo adicional, nunca reemplaza
+   el input ni rompe el uso por teclado.
+2. Indicador de progreso durante la subida.
+3. Límite de tamaño verificado en cliente: **2.097.152 bytes (2 MB)**,
+   acordado con Cristhian sobre archivos reales hoy < 200 KB (ver
+   `docs/DECISIONES.md` D12). Menor que el límite real del backend (25 MB,
+   `config.py::max_upload_bytes`) — es un aviso más conservador, no la
+   fuente de verdad.
+
+---
+
 ## Gaps detectados al escribir esta especificación (no resueltos aquí)
 
 | #   | Gap                                                                                                            | Por qué importa                                                                                                                                       | A quién le toca decidir                                                                                                                                   |
