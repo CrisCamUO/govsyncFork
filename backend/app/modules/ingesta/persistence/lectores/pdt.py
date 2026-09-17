@@ -43,8 +43,34 @@ from app.modules.ingesta.domain.contratos import (
     ResultadoLectura,
     TipoArchivo,
 )
+from app.modules.ingesta.persistence.lectores import _comun
+from app.shared.errors import ArchivoInvalido
 
 ALIAS_HOJA = ("Plan indicativo - Productos", "Plan indicativo Productos")
+
+
+def resolver_hoja_pdt(contenido: bytes, nombre_archivo: str) -> str:
+    """HU-02/CA-2 (tercer punto de la tarjeta): localiza la pestaña de metas.
+
+    A diferencia de `_comun.resolver_hoja` (que devuelve `None` para permitir
+    búsquedas independientes, como en `[HU-03][BE-01]` con Ejecución y
+    Contratación), el PDT tiene UNA sola pestaña obligatoria: su ausencia
+    siempre es un rechazo, con excepción que identifica el problema — tal
+    como pide el texto de la tarjeta, no solo su docstring de resumen.
+    """
+    libro = _comun.abrir_libro(contenido, nombre_archivo)
+    try:
+        hoja = _comun.resolver_hoja(libro.sheetnames, ALIAS_HOJA)
+    finally:
+        libro.close()
+
+    if hoja is None:
+        raise ArchivoInvalido(
+            f"«{nombre_archivo}» no contiene la pestaña «{ALIAS_HOJA[0]}» del Plan Indicativo.",
+            detalles={"motivo": "hoja_no_encontrada", "hojas_esperadas": list(ALIAS_HOJA)},
+        )
+    return hoja
+
 
 # HU-02/CA-3: columnas mínimas cuyo nombre NO cambia entre vigencias. La
 # tercera columna que exige el CA ("meta programada por vigencia") no puede
