@@ -43,18 +43,9 @@ def crear_app() -> FastAPI:
     app.include_router(router_cortes, prefix="/api/v1")
     # TODO [HU-07][FE-01] app.include_router(router_trazabilidad, prefix="/api/v1")
 
-    @app.get("/health", tags=["Operación"], summary="Verificación de estado para despliegue")
-    def health() -> dict[str, str]:
-        """[DEV-07]: ruta real exigida por la tarjeta. No depende de la BD,
-        para responder incluso si la migración inicial sigue rota."""
-        return {"estado": "ok"}
-
     @app.get("/api/v1/salud", tags=["Operación"], summary="Verificación de estado")
     def salud() -> dict[str, str]:
-        """Alias de /health, mantenido bajo el prefijo /api/v1 por
-        compatibilidad. /health es la fuente de verdad (ver docstring de
-        health() y PLANDETRABAJO.md, nota de la tarjeta 6.5)."""
-        return health()
+        return {"estado": "ok", "version": app.version}
 
     return app
 
