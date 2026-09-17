@@ -51,6 +51,7 @@ from app.modules.ingesta.domain.contratos import (
     ResultadoLectura,
     TipoArchivo,
 )
+from app.modules.ingesta.persistence.lectores import _comun
 
 ALIAS_EJECUCION = (
     "EJECUCION",
@@ -66,8 +67,28 @@ OBLIGATORIAS_EJECUCION: dict[str, tuple[str, ...]] = {}
 OBLIGATORIAS_CONTRATACION: dict[str, tuple[str, ...]] = {}
 
 
+def resolver_hojas(contenido: bytes, nombre_archivo: str) -> tuple[str | None, str | None]:
+    """HU-03/CA-2: localiza (hoja_ejecucion, hoja_contratacion), cada una de
+    forma independiente — "conjuntos independientes, sin exigir carga por
+    separado". Ninguna búsqueda depende de que la otra tenga éxito.
+
+    `None` en cualquiera de las dos posiciones significa "no encontrada";
+    decidir qué hacer con eso (CA-4: rechazar nombrando cuál falta) es de
+    `leer()`, [HU-03][BE-04].
+    """
+    libro = _comun.abrir_libro(contenido, nombre_archivo)
+    try:
+        nombres = libro.sheetnames
+        return (
+            _comun.resolver_hoja(nombres, ALIAS_EJECUCION),
+            _comun.resolver_hoja(nombres, ALIAS_CONTRATACION),
+        )
+    finally:
+        libro.close()
+
+
 class LectorEjecucion(LectorArchivoFuente):
     tipo = TipoArchivo.EJECUCION
 
-    def leer(self, contenido: bytes, nombre_archivo: str) -> ResultadoLectura:
+    def leer(self, contenido: bytes, nombre_archivo: str, vigencia: int) -> ResultadoLectura:
         raise NotImplementedError("[HU-03][BE-01]")

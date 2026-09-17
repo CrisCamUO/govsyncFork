@@ -107,6 +107,35 @@ class TestLeerHoja:
         assert df["col1"].tolist() == ["a", "b"]
 
 
+_OBLIGATORIAS_PRUEBA = {
+    "codigo_indicador": ("Código de indicador de producto (MGA)",),
+    "principal": ("Principal",),
+}
+
+
+class TestExigirColumnas:
+    def test_no_hace_nada_si_todas_estan_resueltas(self) -> None:
+        mapeo = {
+            "codigo_indicador": "codigo de indicador de producto (mga)",
+            "principal": "principal",
+        }
+        _comun.exigir_columnas(mapeo, _OBLIGATORIAS_PRUEBA, "pdt.xlsx", HOJA_PDT)
+
+    def test_rechaza_y_nombra_la_columna_que_falta(self) -> None:
+        mapeo = {"codigo_indicador": "codigo de indicador de producto (mga)"}
+        with pytest.raises(ArchivoInvalido) as exc:
+            _comun.exigir_columnas(mapeo, _OBLIGATORIAS_PRUEBA, "pdt.xlsx", HOJA_PDT)
+        assert exc.value.detalles["columnas_faltantes"] == ["Principal"]
+
+    def test_rechaza_y_nombra_todas_las_que_faltan(self) -> None:
+        with pytest.raises(ArchivoInvalido) as exc:
+            _comun.exigir_columnas({}, _OBLIGATORIAS_PRUEBA, "pdt.xlsx", HOJA_PDT)
+        assert set(exc.value.detalles["columnas_faltantes"]) == {
+            "Código de indicador de producto (MGA)",
+            "Principal",
+        }
+
+
 class TestTexto:
     def test_limpia_espacios_pero_conserva_tildes(self) -> None:
         assert _comun.texto("  Vías  ") == "Vías"

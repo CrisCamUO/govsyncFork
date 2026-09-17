@@ -192,8 +192,26 @@ def exigir_columnas(
 
     HU-02/CA-3: el rechazo es total y el mensaje dice QUÉ falta. No se
     incorporan datos parciales.
+
+    No resuelve el `mapeo` (eso es `mapear_columnas`, [HU-03][BE-03]): solo
+    verifica que cada nombre lógico de `obligatorias` haya sido resuelto. Los
+    alias de `obligatorias` no se usan para buscar — solo para nombrar la
+    columna que falta en un mensaje legible.
     """
-    raise NotImplementedError("[HU-02][BE-02]")
+    faltantes = [logico for logico in obligatorias if logico not in mapeo]
+    if not faltantes:
+        return
+
+    nombres_legibles = [obligatorias[logico][0] for logico in faltantes]
+    raise ArchivoInvalido(
+        f"«{nombre_archivo}» no tiene las columnas obligatorias de «{hoja}»: "
+        f"{', '.join(nombres_legibles)}.",
+        detalles={
+            "motivo": "columnas_faltantes",
+            "hoja": hoja,
+            "columnas_faltantes": nombres_legibles,
+        },
+    )
 
 
 def texto(valor: object) -> str | None:

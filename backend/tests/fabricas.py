@@ -94,11 +94,30 @@ def construir_pdt(*, incluir_principal: bool = True) -> bytes:
     return _a_bytes(libro)
 
 
+#: Nombre real, truncado a 31 caracteres por Excel (docstring de ejecucion.py).
+HOJA_EJECUCION = "Formato Resumido Ejecucion Gast"
+HOJA_CONTRATACION = "CONTRATACION"
+
+
 def construir_ejecucion(
     *, incluir_ejecucion: bool = True, incluir_contratacion: bool = True
 ) -> bytes:
     """Archivo presupuestal válido, o sin alguna pestaña (HU-03/CA-4)."""
-    raise NotImplementedError("[HU-03] fixture")
+    libro = Workbook()
+    libro.remove(libro.active)
+
+    if incluir_ejecucion:
+        hoja = libro.create_sheet(HOJA_EJECUCION)
+        hoja.append(["CodigoRubroNivel", "UltimoNivel", "CodigoIndicadorCcpet"])
+        hoja.append(["1.2.3", True, COD_B])
+    if incluir_contratacion:
+        hoja = libro.create_sheet(HOJA_CONTRATACION)
+        hoja.append(["NumeroContrato", "Cod Indicador Ccpet", "Codigo Bpin"])
+        hoja.append(["C-001", COD_B, BPIN_1])
+    if not incluir_ejecucion and not incluir_contratacion:
+        libro.create_sheet("Otra hoja")["A1"] = "sin datos relevantes"
+
+    return _a_bytes(libro)
 
 
 def construir_proyectos(*, incluir_bpin: bool = True) -> bytes:

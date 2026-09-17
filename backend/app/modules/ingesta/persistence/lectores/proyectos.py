@@ -67,5 +67,5 @@ OBLIGATORIAS: dict[str, tuple[str, ...]] = {
 class LectorProyectos(LectorArchivoFuente):
     tipo = TipoArchivo.PROYECTOS
 
-    def leer(self, contenido: bytes, nombre_archivo: str) -> ResultadoLectura:
+    def leer(self, contenido: bytes, nombre_archivo: str, vigencia: int) -> ResultadoLectura:
         raise NotImplementedError("[HU-04][BE-01]")

@@ -52,5 +52,12 @@ class LectorArchivoFuente(ABC):
     tipo: TipoArchivo
 
     @abstractmethod
-    def leer(self, contenido: bytes, nombre_archivo: str) -> ResultadoLectura:
-        """Extrae y transforma. Lanza ArchivoInvalido si el archivo no aplica."""
+    def leer(self, contenido: bytes, nombre_archivo: str, vigencia: int) -> ResultadoLectura:
+        """Extrae y transforma. Lanza ArchivoInvalido si el archivo no aplica.
+
+        `vigencia` [HU-02][BE-02]: al menos el PDT la necesita para resolver
+        una columna obligatoria cuyo nombre real cambia cada año
+        ("Programación del producto bien o servicio <vigencia>") — no se
+        puede expresar como alias fijo en una constante de módulo. Los
+        lectores que no la necesiten simplemente la ignoran.
+        """
