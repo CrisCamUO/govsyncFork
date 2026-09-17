@@ -120,6 +120,40 @@ def construir_ejecucion(
     return _a_bytes(libro)
 
 
+#: La plantilla real la nombra el municipio con el año, sin convención fija.
+HOJA_PROYECTOS = "2026"
+
+
 def construir_proyectos(*, incluir_bpin: bool = True) -> bytes:
-    """Plantilla con celdas combinadas y un indicador multivalor (HU-04/CA-4)."""
-    raise NotImplementedError("[HU-04] fixture")
+    """Plantilla con celdas combinadas y un indicador multivalor (HU-04/CA-4).
+
+    Reproduce la peculiaridad real: una fila de proyecto (BPIN e indicador)
+    seguida de una fila que solo trae datos de contrato, con las columnas de
+    proyecto combinadas verticalmente entre las dos. Sin propagar el valor
+    hacia abajo, la fila de contrato queda huérfana (peculiaridad 6).
+    """
+    libro = Workbook()
+    libro.remove(libro.active)
+    hoja = libro.create_sheet(HOJA_PROYECTOS)
+
+    # "No CONTRATO" nunca se combina: es lo único que trae la fila de
+    # contrato, y lo que evita que `leer_hoja` la descarte con
+    # `dropna(how="all")` al llegar vacía en las columnas de proyecto.
+    encabezados = ["Nombre del proyecto", "Indicador de producto", "No CONTRATO"]
+    if incluir_bpin:
+        encabezados = ["Código BPIN", *encabezados]
+    hoja.append(encabezados)
+
+    columnas_combinadas = len(encabezados) - 1  # todas menos "No CONTRATO"
+
+    indicador_multivalor = f"{COD_A}\n{COD_C}"
+    fila_proyecto = ["Mejoramiento de vías terciarias del municipio", indicador_multivalor, None]
+    if incluir_bpin:
+        fila_proyecto = [BPIN_1, *fila_proyecto]
+    hoja.append(fila_proyecto)
+    hoja.append([*([None] * columnas_combinadas), "C-2026-001"])  # solo trae contrato
+
+    for columna in range(1, columnas_combinadas + 1):
+        hoja.merge_cells(start_row=2, end_row=3, start_column=columna, end_column=columna)
+
+    return _a_bytes(libro)

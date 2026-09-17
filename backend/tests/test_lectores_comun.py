@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 
+import pandas as pd
 import pytest
 from openpyxl import Workbook
 
@@ -134,6 +135,29 @@ class TestExigirColumnas:
             "Código de indicador de producto (MGA)",
             "Principal",
         }
+
+
+class TestRellenarCeldasCombinadas:
+    """[HU-04][BE-01] · peculiaridad 6: celdas combinadas verticalmente."""
+
+    def test_propaga_el_ultimo_valor_no_nulo_hacia_abajo(self) -> None:
+        df = pd.DataFrame(
+            {
+                "bpin": ["202500000050132", None, "202500000050299"],
+                "no contrato": ["C-001", "C-002", "C-003"],
+            }
+        )
+        resultado = _comun.rellenar_celdas_combinadas(df, ["bpin"])
+        assert resultado["bpin"].tolist() == [
+            "202500000050132",
+            "202500000050132",
+            "202500000050299",
+        ]
+
+    def test_no_toca_columnas_que_no_se_piden(self) -> None:
+        df = pd.DataFrame({"bpin": ["A", None], "no contrato": ["C-001", "C-002"]})
+        resultado = _comun.rellenar_celdas_combinadas(df, ["bpin"])
+        assert resultado["no contrato"].tolist() == ["C-001", "C-002"]
 
 
 class TestTexto:

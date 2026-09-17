@@ -19,7 +19,7 @@ import pytest
 from app.modules.cortes.application.casos_uso import ServicioCortes
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCorte, TipoArchivoFuente
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
-from app.shared.errors import ReglaDeNegocioViolada
+from app.shared.errors import OperacionNoPermitida, RecursoNoEncontrado, ReglaDeNegocioViolada
 
 
 class RepositorioCortesEnMemoria(RepositorioCortes):
@@ -190,3 +190,55 @@ def test_crear_corte_sin_corte_anterior_no_reutiliza_nada(servicio):
 
     assert nuevo.archivos == {}
     assert servicio._datos.llamadas_copiar_datos == []
+
+
+class TestRegistrarCorte:
+    def test_rechaza_sin_los_tres_archivos_y_no_toca_la_transaccion(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        llamadas_previas = dict(servicio.llamadas)
+
+        with pytest.raises(OperacionNoPermitida):
+            servicio.registrar_corte(corte.id)
+
+        assert servicio._cortes.obtener(corte.id).estado == EstadoCorte.BORRADOR
+        # corte.registrar() valida antes de tocar el repositorio: si falla,
+        # no hubo nada que confirmar ni que revertir (igual que validar_fecha
+        # en crear_corte).
+        assert servicio.llamadas == llamadas_previas
+
+    def test_registra_y_confirma_la_transaccion_con_los_tres_archivos(self, servicio):
+        corte = _crear_corte_registrado_con_archivos(
+            servicio, vigencia=2026, fecha_corte=date(2026, 9, 8)
+        )
+        # El helper ya deja el corte en REGISTRADO; lo regreso a BORRADOR para
+        # ejercitar registrar_corte de verdad, sin cambiar sus 3 archivos. Es
+        # el mismo objeto que guarda el repositorio en memoria (ver
+        # RepositorioCortesEnMemoria.guardar): mutar `corte` alcanza.
+        corte.estado = EstadoCorte.BORRADOR
+        commits_previos = servicio.llamadas["commit"]
+
+        registrado = servicio.registrar_corte(corte.id)
+
+        assert registrado.estado == EstadoCorte.REGISTRADO
+        assert servicio._cortes.obtener(corte.id).estado == EstadoCorte.REGISTRADO
+        assert servicio.llamadas["commit"] == commits_previos + 1
+
+    def test_corte_inexistente_lanza_recurso_no_encontrado(self, servicio):
+        with pytest.raises(RecursoNoEncontrado):
+            servicio.registrar_corte(uuid.uuid4())
+
+    def test_si_falla_la_confirmacion_revierte_la_transaccion(self, servicio):
+        corte = _crear_corte_registrado_con_archivos(
+            servicio, vigencia=2026, fecha_corte=date(2026, 9, 8)
+        )
+        corte.estado = EstadoCorte.BORRADOR
+
+        def _commit_que_falla():
+            raise RuntimeError("fallo simulado de la base de datos")
+
+        servicio._commit = _commit_que_falla
+
+        with pytest.raises(RuntimeError):
+            servicio.registrar_corte(corte.id)
+
+        assert servicio.llamadas["rollback"] == 1

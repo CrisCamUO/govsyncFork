@@ -242,5 +242,13 @@ def rellenar_celdas_combinadas(df: pd.DataFrame, columnas: list[str]) -> pd.Data
     """Propaga hacia abajo el valor de celdas verticalmente combinadas.
 
     Ver peculiaridad 6. Sin esto, [HU-04] pierde contratos.
+
+    Excel solo guarda el valor en la celda superior izquierda de un rango
+    combinado; al leer con pandas, las demás llegan como None/NaN. `ffill()`
+    propaga el último valor no nulo de cada columna hacia abajo, en el mismo
+    orden en que aparecen las filas en el archivo — que es exactamente lo que
+    Excel muestra visualmente para una celda combinada.
     """
-    raise NotImplementedError("[HU-04][BE-01]")
+    df = df.copy()
+    df[columnas] = df[columnas].ffill()
+    return df

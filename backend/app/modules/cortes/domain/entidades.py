@@ -34,7 +34,7 @@ from datetime import date
 # from enum import Enum
 from enum import StrEnum
 
-from app.shared.errors import ReglaDeNegocioViolada
+from app.shared.errors import OperacionNoPermitida, ReglaDeNegocioViolada
 
 
 class EstadoCorte(StrEnum):
@@ -115,8 +115,19 @@ class Corte:
         Si falta algún archivo obligatorio, la operación se rechaza indicando
         CUÁL falta y el corte NO cambia de estado. Un mensaje genérico incumple
         el CA.
+
+        Llamar sobre un corte ya REGISTRADO es idempotente: si sigue teniendo
+        los 3 archivos (los tiene, si ya se registró antes) simplemente
+        confirma el estado; la tarjeta no pide rechazar un doble registro.
         """
-        raise NotImplementedError("[HU-01][BE-05] Transición a REGISTRADO")
+        faltantes = self.archivos_faltantes()
+        if faltantes:
+            raise OperacionNoPermitida(
+                f"No se puede registrar el corte: faltan los archivos "
+                f"{', '.join(tipo.value for tipo in faltantes)}.",
+                detalles={"archivos_faltantes": [tipo.value for tipo in faltantes]},
+            )
+        self.estado = EstadoCorte.REGISTRADO
 
     def puede_reutilizar(self, tipo: TipoArchivoFuente) -> bool:
         """HU-01/CA-5, CA-7: solo PDT y PROYECTOS son reutilizables.
