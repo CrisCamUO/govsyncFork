@@ -73,6 +73,24 @@ def test_listar_ordena_del_mas_reciente_al_mas_antiguo(repo) -> None:
     assert fechas == [date(2026, 6, 30), date(2025, 3, 31), date(2024, 12, 31)]
 
 
+def test_existe_borrador_activo_es_global_no_por_vigencia(repo) -> None:
+    # D11: el chequeo es contra toda la tabla, no filtra por vigencia.
+    assert repo.existe_borrador_activo() is False
+
+    repo.guardar(Corte(vigencia=2024, fecha_corte=date(2024, 12, 31)))
+
+    assert repo.existe_borrador_activo() is True
+
+
+def test_existe_borrador_activo_ignora_los_registrados(repo) -> None:
+    corte = Corte(vigencia=2026, fecha_corte=date(2026, 6, 30))
+    repo.guardar(corte)
+    corte.estado = EstadoCorte.REGISTRADO
+    repo.confirmar_registro(corte)
+
+    assert repo.existe_borrador_activo() is False
+
+
 def test_ultimo_registrado_ignora_los_borradores(repo, sesion) -> None:
     # El REGISTRADO se guarda y confirma primero; solo entonces cabe un BORRADOR
     # de la misma vigencia (índice único parcial WHERE estado='BORRADOR').

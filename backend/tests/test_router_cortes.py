@@ -40,6 +40,9 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
         self._cortes[corte.id] = corte
         return corte
 
+    def existe_borrador_activo(self) -> bool:
+        return any(c.estado == EstadoCorte.BORRADOR for c in self._cortes.values())
+
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
         return self._cortes.get(corte_id)
 

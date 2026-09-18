@@ -108,6 +108,11 @@ class RepositorioCortesSQL(RepositorioCortes):
         self._s.flush()
         return _a_dominio(orm)
 
+    def existe_borrador_activo(self) -> bool:
+        """D11: consulta global, no filtra por vigencia (ver puertos.py)."""
+        consulta = select(CorteORM.id).where(CorteORM.estado == EstadoCorte.BORRADOR).limit(1)
+        return self._s.scalars(consulta).first() is not None
+
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
         orm = self._s.get(CorteORM, corte_id, options=[selectinload(CorteORM.archivos)])
         return _a_dominio(orm) if orm is not None else None
