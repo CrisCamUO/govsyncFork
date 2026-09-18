@@ -186,7 +186,8 @@ class LectorPDT(LectorArchivoFuente):
             codigo = CodigoIndicadorProducto.desde_crudo(crudo_codigo)
             if codigo is None:
                 advertencias.append(
-                    f"Fila {posicion}: código de indicador inválido ({crudo_codigo!r}); se descarta."
+                    f"Fila {posicion}: código de indicador inválido "
+                    f"({crudo_codigo!r}); se descarta."
                 )
                 continue
 
