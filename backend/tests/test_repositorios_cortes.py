@@ -63,9 +63,16 @@ def test_obtener_corte_inexistente_devuelve_none(repo) -> None:
 
 
 def test_listar_ordena_del_mas_reciente_al_mas_antiguo(repo) -> None:
-    # Vigencias distintas: el índice único parcial solo admite un BORRADOR por vigencia.
-    repo.guardar(Corte(vigencia=2024, fecha_corte=date(2024, 12, 31)))
-    repo.guardar(Corte(vigencia=2025, fecha_corte=date(2025, 3, 31)))
+    # D11: solo un BORRADOR a la vez en toda la tabla, así que los dos
+    # primeros se REGISTRAN antes de guardar el siguiente.
+    corte_2024 = repo.guardar(Corte(vigencia=2024, fecha_corte=date(2024, 12, 31)))
+    corte_2024.estado = EstadoCorte.REGISTRADO
+    repo.confirmar_registro(corte_2024)
+
+    corte_2025 = repo.guardar(Corte(vigencia=2025, fecha_corte=date(2025, 3, 31)))
+    corte_2025.estado = EstadoCorte.REGISTRADO
+    repo.confirmar_registro(corte_2025)
+
     repo.guardar(Corte(vigencia=2026, fecha_corte=date(2026, 6, 30)))
 
     fechas = [c.fecha_corte for c in repo.listar()]

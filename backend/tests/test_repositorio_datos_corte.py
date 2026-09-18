@@ -16,7 +16,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.modules.cortes.domain.entidades import TipoArchivoFuente
+from app.modules.cortes.domain.entidades import EstadoCorte, TipoArchivoFuente
 from app.modules.cortes.persistence.models import (
     CorteORM,
     MetaORM,
@@ -28,9 +28,15 @@ from app.modules.cortes.persistence.models import (
 from app.modules.cortes.persistence.repositorios import RepositorioDatosCorteSQL
 
 
-def _crear_corte(sesion, *, vigencia: int = 2026, fecha: date = date(2026, 1, 1)) -> uuid.UUID:
+def _crear_corte(
+    sesion,
+    *,
+    vigencia: int = 2026,
+    fecha: date = date(2026, 1, 1),
+    estado: EstadoCorte = EstadoCorte.BORRADOR,
+) -> uuid.UUID:
     corte_id = uuid.uuid4()
-    sesion.add(CorteORM(id=corte_id, vigencia=vigencia, fecha_corte=fecha))
+    sesion.add(CorteORM(id=corte_id, vigencia=vigencia, fecha_corte=fecha, estado=estado))
     sesion.flush()
     return corte_id
 
@@ -41,7 +47,9 @@ def repo(sesion) -> RepositorioDatosCorteSQL:
 
 
 def test_copiar_datos_pdt_duplica_meta_y_su_programacion(sesion, repo) -> None:
-    origen_id = _crear_corte(sesion, vigencia=2025)
+    # D11: como máximo un BORRADOR en toda la tabla; el origen de una
+    # reutilización siempre es REGISTRADO en la práctica (ultimo_registrado).
+    origen_id = _crear_corte(sesion, vigencia=2025, estado=EstadoCorte.REGISTRADO)
     destino_id = _crear_corte(sesion, vigencia=2026)
 
     meta_id = uuid.uuid4()
@@ -100,7 +108,9 @@ def test_copiar_datos_pdt_duplica_meta_y_su_programacion(sesion, repo) -> None:
 
 
 def test_copiar_datos_proyectos_duplica_proyecto_e_indicadores(sesion, repo) -> None:
-    origen_id = _crear_corte(sesion, vigencia=2025)
+    # D11: como máximo un BORRADOR en toda la tabla; el origen de una
+    # reutilización siempre es REGISTRADO en la práctica (ultimo_registrado).
+    origen_id = _crear_corte(sesion, vigencia=2025, estado=EstadoCorte.REGISTRADO)
     destino_id = _crear_corte(sesion, vigencia=2026)
 
     proyecto_id = uuid.uuid4()
@@ -140,7 +150,9 @@ def test_copiar_datos_proyectos_duplica_proyecto_e_indicadores(sesion, repo) -> 
 
 
 def test_copiar_datos_sin_filas_de_origen_devuelve_cero(sesion, repo) -> None:
-    origen_id = _crear_corte(sesion, vigencia=2025)
+    # D11: como máximo un BORRADOR en toda la tabla; el origen de una
+    # reutilización siempre es REGISTRADO en la práctica (ultimo_registrado).
+    origen_id = _crear_corte(sesion, vigencia=2025, estado=EstadoCorte.REGISTRADO)
     destino_id = _crear_corte(sesion, vigencia=2026)
 
     assert repo.copiar_datos(origen_id, destino_id, TipoArchivoFuente.PDT) == 0
@@ -148,7 +160,9 @@ def test_copiar_datos_sin_filas_de_origen_devuelve_cero(sesion, repo) -> None:
 
 
 def test_copiar_datos_con_tipo_no_copiable_lanza_value_error(sesion, repo) -> None:
-    origen_id = _crear_corte(sesion, vigencia=2025)
+    # D11: como máximo un BORRADOR en toda la tabla; el origen de una
+    # reutilización siempre es REGISTRADO en la práctica (ultimo_registrado).
+    origen_id = _crear_corte(sesion, vigencia=2025, estado=EstadoCorte.REGISTRADO)
     destino_id = _crear_corte(sesion, vigencia=2026)
 
     with pytest.raises(ValueError):
@@ -156,7 +170,9 @@ def test_copiar_datos_con_tipo_no_copiable_lanza_value_error(sesion, repo) -> No
 
 
 def test_copiar_datos_no_hace_commit(sesion, repo) -> None:
-    origen_id = _crear_corte(sesion, vigencia=2025)
+    # D11: como máximo un BORRADOR en toda la tabla; el origen de una
+    # reutilización siempre es REGISTRADO en la práctica (ultimo_registrado).
+    origen_id = _crear_corte(sesion, vigencia=2025, estado=EstadoCorte.REGISTRADO)
     destino_id = _crear_corte(sesion, vigencia=2026)
     sesion.add(
         MetaORM(

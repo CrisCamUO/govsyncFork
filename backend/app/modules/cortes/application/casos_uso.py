@@ -43,7 +43,7 @@ from datetime import date
 
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
-from app.shared.errors import RecursoNoEncontrado
+from app.shared.errors import OperacionNoPermitida, RecursoNoEncontrado
 
 
 class ServicioCortes:
@@ -65,13 +65,21 @@ class ServicioCortes:
         """HU-01 / CA-1, CA-5, CA-7, CA-8.
 
         La validacion de fecha futura (CA-2) se delega al dominio, no se
-        reimplementa aqui. Tras guardar el corte en BORRADOR, se reutilizan
-        automaticamente PDT y PROYECTOS del ultimo corte REGISTRADO de la
-        MISMA vigencia (CA-5, D-05); EJECUCION nunca se reutiliza (CA-7).
-        Todo dentro de la misma transaccion: si copiar los datos de origen
-        falla, no queda ni el corte a medio crear.
+        reimplementa aqui. D11 (docs/DECISIONES.md): se rechaza con 409 si
+        ya existe un corte en BORRADOR, sin importar su vigencia — el
+        indice unico parcial de la BD es el respaldo contra la condicion de
+        carrera, no el mecanismo principal. Tras guardar el corte en
+        BORRADOR, se reutilizan automaticamente PDT y PROYECTOS del ultimo
+        corte REGISTRADO de la MISMA vigencia (CA-5, D-05); EJECUCION nunca
+        se reutiliza (CA-7). Todo dentro de la misma transaccion: si copiar
+        los datos de origen falla, no queda ni el corte a medio crear.
         """
         Corte.validar_fecha(fecha_corte, self._hoy)
+        if self._cortes.existe_borrador_activo():
+            raise OperacionNoPermitida(
+                "Ya existe un corte en BORRADOR. Corríjalo o regístrelo antes de crear uno nuevo.",
+                detalles={"motivo": "borrador_activo_existente"},
+            )
         corte = Corte(vigencia=vigencia, fecha_corte=fecha_corte)
         try:
             corte_guardado = self._cortes.guardar(corte)

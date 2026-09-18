@@ -43,8 +43,10 @@ DECISIONES DE MODELO VERIFICADAS CONTRA LOS DATOS REALES (docs/DECISIONES.md)
 7. Índice (corte_id, cod_indicador_producto) en meta, rubro y contrato: son
    las condiciones de JOIN de la matriz de [HU-07].
 
-Adicional (D1/D3, docs/DECISIONES.md): a lo sumo un corte BORRADOR por
-vigencia -> índice único parcial `WHERE estado = 'BORRADOR'`.
+Adicional (D9/D11, docs/DECISIONES.md): a lo sumo un corte BORRADOR en toda
+la tabla, sin importar la vigencia -> índice único parcial
+`WHERE estado = 'BORRADOR'` (D11); y ninguna vigencia+fecha_corte repetida
+-> índice único (D9).
 
 RESTRICCIÓN ARQUITECTÓNICA: SQLAlchemy vive aquí (capa persistencia); pandas y
 openpyxl no. Lo verifica tests/test_arquitectura.py.
@@ -93,14 +95,24 @@ class CorteORM(Base):
     )
 
     __table_args__ = (
-        # D1/D3: solo puede haber un borrador abierto por vigencia. Los cortes
-        # REGISTRADOS de la misma vigencia sí conviven (histórico / versiones).
+        # D11: un solo corte en BORRADOR en toda la tabla, sin importar la
+        # vigencia. Respaldo de BD de existe_borrador_activo() (puertos.py)
+        # contra condiciones de carrera.
         sa.Index(
-            "ux_corte_borrador_por_vigencia",
-            "vigencia",
+            "ux_corte_borrador_unico",
+            "estado",
             unique=True,
             postgresql_where=sa.text("estado = 'BORRADOR'"),
             sqlite_where=sa.text("estado = 'BORRADOR'"),
+        ),
+        # D9: no puede haber dos cortes con la misma vigencia y la misma
+        # fecha_corte exacta. Los cortes REGISTRADOS de la misma vigencia sí
+        # conviven (histórico / versiones), siempre que difieran en fecha.
+        sa.Index(
+            "ux_corte_vigencia_fecha",
+            "vigencia",
+            "fecha_corte",
+            unique=True,
         ),
     )
 
