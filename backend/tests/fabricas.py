@@ -112,8 +112,8 @@ def construir_ejecucion(
         hoja.append(["1.2.3", True, COD_B])
     if incluir_contratacion:
         hoja = libro.create_sheet(HOJA_CONTRATACION)
-        hoja.append(["NumeroContrato", "Cod Indicador Ccpet", "Codigo Bpin"])
-        hoja.append(["C-001", COD_B, BPIN_1])
+        hoja.append(["NumeroContrato", "Cod Indicador Ccpet", "Codigo Bpin", "Objeto"])
+        hoja.append(["C-001", COD_B, BPIN_1, "Mantenimiento de vías terciarias"])
     if not incluir_ejecucion and not incluir_contratacion:
         libro.create_sheet("Otra hoja")["A1"] = "sin datos relevantes"
 

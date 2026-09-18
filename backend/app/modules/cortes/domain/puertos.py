@@ -27,6 +27,20 @@ class RepositorioCortes(ABC):
         """Persiste un corte nuevo (siempre en estado BORRADOR)."""
 
     @abstractmethod
+    def existe_borrador_activo(self) -> bool:
+        """D11: hay como máximo un corte en BORRADOR en toda la tabla,
+        sin importar la vigencia (docs/DECISIONES.md, D11).
+
+        `crear_corte` (casos_uso.py) lo consulta ANTES de `guardar()` para
+        devolver un 409 legible (OperacionNoPermitida) en vez de dejar que
+        la violación del índice único parcial `estado='BORRADOR'` llegue
+        como un error de integridad crudo. El índice sigue siendo necesario
+        como respaldo contra la condición de carrera (dos POST /cortes casi
+        simultáneos) — este método no lo reemplaza, resuelve el caso común
+        con un mensaje de negocio.
+        """
+
+    @abstractmethod
     def obtener(self, corte_id: uuid.UUID) -> Corte | None: ...
 
     @abstractmethod

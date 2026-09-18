@@ -322,12 +322,19 @@ Corregirlo requiere `PATCH /cortes/{id}`, que no existe hoy.
 
 **A qué afecta (no implementar aún, solo dejar constancia):** `crear_corte`
 en `casos_uso.py`, método nuevo en `puertos.py`, endpoint `PATCH` sin
-dueño, mapeo 409 en `core/errores.py`.
+dueño, mapeo 409 en `core/errores.py`, migración de Alembic / `models.py`
+— índice único parcial sobre `estado = 'BORRADOR'` (a lo sumo un corte en
+ese estado en toda la tabla).
 
 **Estado:** RATIFICADA.
 
 **Registrado:** 2026-09-13.
 **Ratificado:** 2026-09-13 por el equipo.
+**Aclaración posterior (2026-09-18):** Cristhian y Juan David confirmaron
+que D11 también requiere el índice de BD como respaldo contra condiciones
+de carrera (dos peticiones casi simultáneas), no solo la validación de
+aplicación. La ratificación original del 2026-09-13 no dejó esto
+explícito — este PR lo cierra.
 
 ---
 
