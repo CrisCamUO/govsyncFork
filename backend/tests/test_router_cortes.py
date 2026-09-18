@@ -80,8 +80,9 @@ class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
 
 @pytest.fixture()
 def cliente():
+    repo_cortes = RepositorioCortesEnMemoria()
     servicio = ServicioCortes(
-        repo_cortes=RepositorioCortesEnMemoria(),
+        repo_cortes=repo_cortes,
         repo_datos=RepositorioDatosCorteEnMemoria(),
         confirmar_transaccion=lambda: None,
         revertir_transaccion=lambda: None,
@@ -91,6 +92,7 @@ def cliente():
     app = crear_app()
     app.dependency_overrides[obtener_servicio_cortes] = lambda: servicio
     with TestClient(app) as c:
+        c.repo_cortes = repo_cortes  # D11: acceso directo para registrar cortes en pruebas
         yield c
     app.dependency_overrides.clear()
 
@@ -115,7 +117,14 @@ def test_post_cortes_fecha_futura_devuelve_422_con_motivo(cliente):
 
 
 def test_get_cortes_devuelve_historico_200(cliente):
-    cliente.post("/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"})
+    primero = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"}
+    ).json()
+    # D11: como máximo un BORRADOR a la vez — se registra el primero antes
+    # de crear el segundo.
+    corte = cliente.repo_cortes.obtener(uuid.UUID(primero["id"]))
+    corte.estado = EstadoCorte.REGISTRADO
+    cliente.repo_cortes.confirmar_registro(corte)
     cliente.post("/api/v1/cortes", json={"vigencia": 2025, "fecha_corte": "2025-12-01"})
 
     respuesta = cliente.get("/api/v1/cortes")

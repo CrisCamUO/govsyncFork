@@ -112,8 +112,25 @@ def test_crear_corte_rechaza_fecha_futura_sin_persistir_nada(servicio):
     assert servicio.llamadas["commit"] == 0
 
 
-def test_listar_cortes_devuelve_lo_creado(servicio):
+def test_crear_corte_rechaza_si_ya_existe_borrador_activo_de_otra_vigencia(servicio):
+    # D11: la regla es global — un BORRADOR de OTRA vigencia también bloquea.
     servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+    with pytest.raises(OperacionNoPermitida) as exc:
+        servicio.crear_corte(vigencia=2025, fecha_corte=date(2025, 12, 1))
+
+    assert exc.value.detalles["motivo"] == "borrador_activo_existente"
+    assert len(servicio.listar_cortes()) == 1
+    assert servicio.llamadas["commit"] == 1
+    assert servicio.llamadas["rollback"] == 0
+
+
+def test_listar_cortes_devuelve_lo_creado(servicio):
+    # D11: como máximo un BORRADOR en toda la tabla — se registra el primero
+    # antes de crear el segundo.
+    primero = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+    primero.estado = EstadoCorte.REGISTRADO
+    servicio._cortes.confirmar_registro(primero)
     servicio.crear_corte(vigencia=2025, fecha_corte=date(2025, 12, 1))
 
     cortes = servicio.listar_cortes()
