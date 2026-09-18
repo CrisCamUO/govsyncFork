@@ -39,11 +39,20 @@ Checklist de esa tarjeta:
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
+from typing import TYPE_CHECKING
 
-from app.modules.cortes.domain.entidades import ArchivoFuente, Corte
+from app.modules.cortes.application.validacion_archivos import (
+    TAMANO_MAX_POR_DEFECTO,
+    validar_archivo_cargado,
+)
+from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, TipoArchivoFuente
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
 from app.shared.errors import OperacionNoPermitida, RecursoNoEncontrado
+
+if TYPE_CHECKING:
+    from app.modules.ingesta.domain.contratos import LectorArchivoFuente, ResultadoLectura
 
 
 class ServicioCortes:
@@ -53,13 +62,29 @@ class ServicioCortes:
         repo_datos: RepositorioDatosCorte,
         confirmar_transaccion,
         revertir_transaccion,
+        lectores: dict[TipoArchivoFuente, LectorArchivoFuente] | None = None,
         hoy: date | None = None,
+        tamano_max_archivo: int = TAMANO_MAX_POR_DEFECTO,
     ) -> None:
+        """`lectores`: DECISIÓN TÉCNICA de [HU-02][BE-04] (Strategy, ya
+        prescrito por el docstring de `ingesta/domain/contratos.py`: "un
+        `if tipo == ...` central mezclaría tres conjuntos de reglas"). Se
+        inyecta un mapeo tipo->lector en vez de que `cargar_archivo`
+        instancie lectores concretos: así la capa Aplicación solo depende
+        de la abstracción `LectorArchivoFuente` (DIP), igual que ya hace con
+        `RepositorioCortes`/`RepositorioDatosCorte`. El composition root
+        (`core/dependencias.py`) es quien arma este mapeo con los lectores
+        reales. Por eso es un parámetro CON DEFAULT (`None` -> `{}`): los
+        tests y llamadores existentes de `ServicioCortes(...)` que no cargan
+        archivos siguen funcionando sin cambios (R2 del plan de trabajo).
+        """
         self._cortes = repo_cortes
         self._datos = repo_datos
         self._commit = confirmar_transaccion
         self._rollback = revertir_transaccion
+        self._lectores: dict[TipoArchivoFuente, LectorArchivoFuente] = lectores or {}
         self._hoy = hoy or date.today()
+        self._tamano_max_archivo = tamano_max_archivo
 
     def crear_corte(self, vigencia: int, fecha_corte: date) -> Corte:
         """HU-01 / CA-1, CA-5, CA-7, CA-8.
@@ -116,9 +141,96 @@ class ServicioCortes:
             self._cortes.registrar_archivo(corte.id, archivo_nuevo)
             corte.archivos[tipo] = archivo_nuevo
 
-    def cargar_archivo(self, corte_id, tipo, contenido: bytes, nombre_archivo: str):
-        """HU-02, HU-03, HU-04 y HU-06 (reemplazo del archivo)."""
-        raise NotImplementedError("[HU-02][BE-04] / [HU-03][BE-06] / [HU-04][BE-04]")
+    def cargar_archivo(
+        self,
+        corte_id: uuid.UUID,
+        tipo: TipoArchivoFuente,
+        contenido: bytes,
+        nombre_archivo: str,
+    ) -> ArchivoFuente:
+        """HU-02/CA-1, HU-03/CA-1, HU-04/CA-1 y HU-06 (reemplazo del archivo).
+
+        Respeta la frontera del pipeline ETL documentada en el docstring del
+        módulo: EXTRACT+TRANSFORM (SEC-03 + el lector de `tipo`, vía
+        `_lectores`, Strategy) se ejecuta COMPLETO antes de abrir ninguna
+        escritura. Si el archivo es inválido o el lector lo rechaza, no se
+        abrió transacción y no hay nada que revertir. LOAD
+        (`repo_datos.reemplazar_*`) y el registro del `ArchivoFuente` sí
+        viajan dentro de la misma transacción: si el Load falla, se revierte
+        completo (HU-02/CA-3: rechazo total, nunca datos parciales).
+
+        SUPUESTO (MENOR — registrado, no bloqueante): no se restringe el
+        estado del corte (BORRADOR vs REGISTRADO). Ninguna CA de HU-02/03/04
+        lo exige explícitamente; corregir un archivo de un corte ya
+        REGISTRADO es HU-05/HU-06, todavía sin implementar. Si el equipo
+        decide que solo debe poder cargarse contra un corte en BORRADOR, hay
+        que agregar esa validación aquí explícitamente.
+        """
+        corte = self._cortes.obtener(corte_id)
+        if corte is None:
+            raise RecursoNoEncontrado(f"No existe un corte con id {corte_id}.")
+
+        lector = self._lectores.get(tipo)
+        if lector is None:
+            raise ValueError(
+                f"No hay un lector registrado para el tipo de archivo {tipo!r}. "
+                "Revisar el mapeo `lectores` con el que se construyó ServicioCortes."
+            )
+
+        # --- EXTRACT + TRANSFORM: fuera de la transacción de escritura -----
+        nombre_saneado = validar_archivo_cargado(
+            contenido, nombre_archivo, tamano_max=self._tamano_max_archivo
+        )
+        resultado = lector.leer(contenido, nombre_saneado, corte.vigencia)
+
+        # --- LOAD: dentro de la transacción ---------------------------------
+        try:
+            filas_cargadas = self._cargar_resultado(corte_id, tipo, resultado)
+            archivo = ArchivoFuente(
+                tipo=tipo,
+                nombre_archivo=nombre_saneado,
+                filas_reconocidas=filas_cargadas,
+                reutilizado=False,
+                corte_origen_id=None,
+            )
+            self._cortes.registrar_archivo(corte_id, archivo)
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        corte.archivos[tipo] = archivo
+        return archivo
+
+    def _cargar_resultado(
+        self, corte_id: uuid.UUID, tipo: TipoArchivoFuente, resultado: ResultadoLectura
+    ) -> int:
+        """Despacho de la etapa Load por tipo (Strategy): cada fuente llena
+        tablas distintas de `RepositorioDatosCorte` — un método por tipo, no
+        uno genérico. Mismo criterio que `LectorArchivoFuente` (Strategy) en
+        `ingesta/domain/contratos.py`; ver docstring de esa clase.
+
+        [HU-03][BE-06] y [HU-04][BE-04] quedan señalizadas explícitamente
+        como NO implementadas: ver el bloqueo documentado en la Fase 1 de
+        esta entrega (`ejecucion.py`/`_comun.py::numero` y
+        `proyectos.py::leer` siguen en NotImplementedError). Fabricar aquí
+        una implementación que dependa de datos que el lector no produce
+        violaría "nunca conviertas un supuesto en un requisito".
+        """
+        if tipo is TipoArchivoFuente.PDT:
+            return self._datos.reemplazar_metas(corte_id, resultado.filas["metas"])
+        if tipo is TipoArchivoFuente.EJECUCION:
+            raise NotImplementedError(
+                "[HU-03][BE-06]: bloqueado — ver Fase 1 de la entrega "
+                "(lectores/ejecucion.py y _comun.py::numero no producen los "
+                "campos que exige RepositorioDatosCorte.reemplazar_presupuesto)."
+            )
+        if tipo is TipoArchivoFuente.PROYECTOS:
+            raise NotImplementedError(
+                "[HU-04][BE-04]: bloqueado — lectores/proyectos.py::leer "
+                "sigue NotImplementedError([HU-04][BE-01]); no hay resultado "
+                "que cargar todavía."
+            )
+        raise ValueError(f"Tipo de archivo sin manejador de carga: {tipo!r}")
 
     def registrar_corte(self, corte_id) -> Corte:
         """HU-01 / CA-3 y CA-4.

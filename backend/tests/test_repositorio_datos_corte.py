@@ -188,3 +188,125 @@ def test_copiar_datos_no_hace_commit(sesion, repo) -> None:
     sesion.rollback()
 
     assert sesion.scalars(select(MetaORM)).all() == []
+
+
+def test_reemplazar_metas_inserta_las_filas_del_lector(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_metas(
+        corte_id,
+        [
+            {
+                "cod_indicador_producto": "040110500",  # HU-03/CA-7: conserva el cero inicial
+                "principal": True,
+                "meta_cuatrienio": Decimal("10"),
+                "nombre_producto": "Vías terciarias mantenidas",
+                "unidad_medida": "Kilómetros",
+            },
+            {
+                "cod_indicador_producto": "170202300",
+                "principal": False,
+                "meta_cuatrienio": None,
+                "nombre_producto": None,
+                "unidad_medida": None,
+            },
+        ],
+    )
+
+    assert filas == 2
+    metas = sesion.scalars(
+        select(MetaORM).where(MetaORM.corte_id == corte_id).order_by(MetaORM.cod_indicador_producto)
+    ).all()
+    assert [m.cod_indicador_producto for m in metas] == ["040110500", "170202300"]
+    assert metas[0].es_principal is True
+    assert metas[0].meta_cuatrienio == Decimal("10")
+    assert metas[0].nombre_producto == "Vías terciarias mantenidas"
+    assert metas[1].es_principal is False
+    assert metas[1].nombre_producto is None
+
+
+def test_reemplazar_metas_es_reemplazo_total_y_borra_lo_anterior(sesion, repo) -> None:
+    """HU-06 (corregir una carga errónea): la segunda carga no debe acumular
+    filas de la primera — "reemplazo total por corte y tipo de fuente"
+    (docstring de RepositorioDatosCorte).
+    """
+    corte_id = _crear_corte(sesion)
+    repo.reemplazar_metas(corte_id, [{"cod_indicador_producto": "040110500", "principal": True}])
+
+    filas = repo.reemplazar_metas(
+        corte_id, [{"cod_indicador_producto": "330105300", "principal": False}]
+    )
+
+    assert filas == 1
+    metas = sesion.scalars(select(MetaORM).where(MetaORM.corte_id == corte_id)).all()
+    assert [m.cod_indicador_producto for m in metas] == ["330105300"]
+
+
+def test_reemplazar_metas_borra_en_cascada_la_programacion_de_la_meta_anterior(
+    sesion, repo
+) -> None:
+    """La meta reemplazada puede venir de una reutilización previa
+    (copiar_datos, HU-01/CA-5) con hijas en meta_programacion_fisica /
+    programacion_financiera. El ON DELETE CASCADE de esas FK (models.py)
+    debe encargarse de ellas al reemplazar; de lo contrario quedan filas
+    huérfanas apuntando a un meta_id que ya no existe.
+    """
+    corte_id = _crear_corte(sesion)
+    meta_anterior_id = uuid.uuid4()
+    sesion.add(
+        MetaORM(
+            id=meta_anterior_id,
+            corte_id=corte_id,
+            cod_indicador_producto="040110500",
+            es_principal=True,
+        )
+    )
+    sesion.add(
+        MetaProgramacionFisicaORM(
+            id=uuid.uuid4(), meta_id=meta_anterior_id, anio=2026, valor_programado=Decimal("5")
+        )
+    )
+    sesion.add(
+        ProgramacionFinancieraORM(
+            id=uuid.uuid4(), meta_id=meta_anterior_id, anio=2026, valor_programado=Decimal("100")
+        )
+    )
+    sesion.flush()
+
+    repo.reemplazar_metas(corte_id, [{"cod_indicador_producto": "170202300", "principal": False}])
+
+    assert (
+        sesion.scalars(
+            select(MetaProgramacionFisicaORM).where(
+                MetaProgramacionFisicaORM.meta_id == meta_anterior_id
+            )
+        ).all()
+        == []
+    )
+    assert (
+        sesion.scalars(
+            select(ProgramacionFinancieraORM).where(
+                ProgramacionFinancieraORM.meta_id == meta_anterior_id
+            )
+        ).all()
+        == []
+    )
+
+
+def test_reemplazar_metas_sin_filas_deja_el_corte_sin_metas(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+    repo.reemplazar_metas(corte_id, [{"cod_indicador_producto": "040110500", "principal": True}])
+
+    filas = repo.reemplazar_metas(corte_id, [])
+
+    assert filas == 0
+    assert sesion.scalars(select(MetaORM).where(MetaORM.corte_id == corte_id)).all() == []
+
+
+def test_reemplazar_metas_no_hace_commit(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    repo.reemplazar_metas(corte_id, [{"cod_indicador_producto": "040110500", "principal": True}])
+    sesion.rollback()
+
+    assert sesion.scalars(select(MetaORM)).all() == []
