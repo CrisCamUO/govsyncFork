@@ -54,10 +54,17 @@ Evidencia: `test_validacion_archivos.py` (16 pruebas), 170 passed en local
       placeholder; `config.py` tiene un `field_validator` que **lanza excepción**
       si `environment=="production"` y el secreto sigue empezando por `dev-only`
 - [ ] `SONAR_TOKEN` y credenciales de despliegue viven en GitHub Secrets, no
-      en el código ni en `docker-compose.yml` — **no verificable desde el
-      repositorio local** (son ajustes de GitHub, no de código); además
-      `[DEV-06]` (SonarCloud/CodeQL) todavía no está implementado, así que este
-      secreto ni siquiera existe todavía
+      en el código ni en `docker-compose.yml`. `[DEV-06]` ya tiene el workflow
+      (`.github/workflows/sonarcloud.yml` + `sonar-project.properties`,
+      separado de `ci.yml` por la regla de no modificarlo) apuntando al
+      proyecto real (`projectKey=CrisCamUO_govsyncFork`,
+      `organization=criscamuo`). Cristhian reporta 2026-09-19 haber creado el
+      proyecto en sonarcloud.io, agregado el secreto `SONAR_TOKEN` en GitHub y
+      confirmado en Settings → Code security que el "default setup" de CodeQL
+      está activo — **no verificable desde el repositorio local** (son
+      ajustes de GitHub/SonarCloud, no de código); queda "Verificado" cuando
+      el job `sonarcloud` corra en verde en un PR real, esa corrida es la
+      evidencia que falta marcar aquí
 
 ## Exposición de errores internos
 
