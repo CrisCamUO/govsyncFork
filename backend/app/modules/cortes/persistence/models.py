@@ -42,6 +42,11 @@ DECISIONES DE MODELO VERIFICADAS CONTRA LOS DATOS REALES (docs/DECISIONES.md)
 6. `meta.es_principal` BOOLEAN NOT NULL (HU-02/CA-3 la exige como columna).
 7. Índice (corte_id, cod_indicador_producto) en meta, rubro y contrato: son
    las condiciones de JOIN de la matriz de [HU-07].
+8. `meta.unidad_medida` es `Text`, NO `String(120)`: contra el PDT real de
+   Santa Rosa, dos unidades de medida miden 151 y 160 caracteres (son
+   descripciones largas, no unidades cortas como "Kilómetros") —
+   `String(120)` rechazaba la carga completa con `StringDataRightTruncation`.
+   Mismo criterio que `nombre_producto`, que ya era `Text`.
 
 Adicional (D9/D11, docs/DECISIONES.md): a lo sumo un corte BORRADOR en toda
 la tabla, sin importar la vigencia -> índice único parcial
@@ -159,7 +164,7 @@ class MetaORM(Base):
     cod_indicador_sistp: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
     codigo_producto_mga: Mapped[str | None] = mapped_column(sa.String(7), nullable=True)
     nombre_producto: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    unidad_medida: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    unidad_medida: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     meta_cuatrienio: Mapped[Decimal | None] = mapped_column(CANTIDAD, nullable=True)
     # Decisión 6: la eficacia solo considera indicadores principales.
     es_principal: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
