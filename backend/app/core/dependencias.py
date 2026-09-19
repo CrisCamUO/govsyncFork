@@ -30,12 +30,24 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.modules.cortes.application.casos_uso import ServicioCortes
+from app.modules.cortes.domain.entidades import TipoArchivoFuente
 from app.modules.cortes.persistence.repositorios import (
     RepositorioCortesSQL,
     RepositorioDatosCorteSQL,
 )
+from app.modules.ingesta.persistence.lectores.pdt import LectorPDT
 
 SesionDep = Annotated[Session, Depends(get_session)]
+
+#: [HU-02][BE-04]: registro de lectores disponibles (Strategy). Solo PDT
+#: tiene lector funcional hoy — EJECUCION y PROYECTOS quedan deliberadamente
+#: fuera hasta que sus lectores estén completos (ver casos_uso.py::
+#: _cargar_resultado y el bloqueo documentado en la entrega de [HU-03][BE-06]
+#: / [HU-04][BE-04]); `cargar_archivo` ya maneja con claridad el tipo sin
+#: lector registrado.
+_LECTORES_DISPONIBLES = {
+    TipoArchivoFuente.PDT: LectorPDT(),
+}
 
 
 def obtener_servicio_cortes(sesion: SesionDep) -> ServicioCortes:
@@ -54,6 +66,7 @@ def obtener_servicio_cortes(sesion: SesionDep) -> ServicioCortes:
         repo_datos=RepositorioDatosCorteSQL(sesion),
         confirmar_transaccion=sesion.commit,
         revertir_transaccion=sesion.rollback,
+        lectores=_LECTORES_DISPONIBLES,
     )
 
 

@@ -19,7 +19,16 @@ import pytest
 from app.modules.cortes.application.casos_uso import ServicioCortes
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCorte, TipoArchivoFuente
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
-from app.shared.errors import OperacionNoPermitida, RecursoNoEncontrado, ReglaDeNegocioViolada
+from app.modules.ingesta.domain.contratos import ResultadoLectura
+from app.modules.ingesta.domain.contratos import TipoArchivo as TipoArchivoIngesta
+from app.modules.ingesta.persistence.lectores.pdt import LectorPDT
+from app.shared.errors import (
+    ArchivoInvalido,
+    OperacionNoPermitida,
+    RecursoNoEncontrado,
+    ReglaDeNegocioViolada,
+)
+from tests.fabricas import construir_pdt
 
 
 class RepositorioCortesEnMemoria(RepositorioCortes):
@@ -62,9 +71,11 @@ class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
 
     def __init__(self) -> None:
         self.llamadas_copiar_datos: list[tuple[uuid.UUID, uuid.UUID, TipoArchivoFuente]] = []
+        self.llamadas_reemplazar_metas: list[tuple[uuid.UUID, list[dict[str, Any]]]] = []
 
     def reemplazar_metas(self, corte_id: uuid.UUID, metas: list[dict[str, Any]]) -> int:
-        raise NotImplementedError
+        self.llamadas_reemplazar_metas.append((corte_id, metas))
+        return len(metas)
 
     def reemplazar_presupuesto(self, corte_id, rubros, contratos, registros) -> int:
         raise NotImplementedError
@@ -262,3 +273,215 @@ class TestRegistrarCorte:
             servicio.registrar_corte(corte.id)
 
         assert servicio.llamadas["rollback"] == 1
+
+
+class _LectorFalso:
+    """Doble de LectorArchivoFuente: aisla la orquestación de cargar_archivo
+    de la lectura real de Excel. `tipo` fijo en PDT porque `_lectores` se
+    indexa por TipoArchivoFuente, no por el atributo del lector.
+    """
+
+    def __init__(self, resultado: ResultadoLectura | None = None, error: Exception | None = None):
+        self._resultado = resultado
+        self._error = error
+        self.llamadas: list[tuple[bytes, str, int]] = []
+
+    def leer(self, contenido: bytes, nombre_archivo: str, vigencia: int) -> ResultadoLectura:
+        self.llamadas.append((contenido, nombre_archivo, vigencia))
+        if self._error is not None:
+            raise self._error
+        assert self._resultado is not None
+        return self._resultado
+
+
+#: Contenido mínimo que pasa SEC-03 (firma ZIP + estructura de libro): se
+#: reutiliza el .xlsx real de construir_pdt() en vez de fabricar bytes ad
+#: hoc, para no mantener una segunda noción de "qué es un .xlsx válido".
+_XLSX_VALIDO = construir_pdt()
+
+
+class TestCargarArchivo:
+    """[HU-02][BE-04]: orquestación de cargar_archivo (SEC-03 -> lector ->
+    Load -> registro del archivo), con un lector doble para aislarla de la
+    lectura real de Excel. La integración real con LectorPDT se cubre aparte
+    (TestCargarArchivoIntegracionPDT).
+    """
+
+    def _servicio_con_lector(self, servicio: ServicioCortes, lector) -> ServicioCortes:
+        servicio._lectores = {TipoArchivoFuente.PDT: lector}
+        return servicio
+
+    def test_corte_inexistente_lanza_recurso_no_encontrado(self, servicio):
+        self._servicio_con_lector(servicio, _LectorFalso())
+
+        with pytest.raises(RecursoNoEncontrado):
+            servicio.cargar_archivo(uuid.uuid4(), TipoArchivoFuente.PDT, _XLSX_VALIDO, "plan.xlsx")
+
+    def test_tipo_sin_lector_registrado_lanza_value_error(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        # Sin registrar ningún lector (servicio._lectores queda {} por defecto).
+
+        with pytest.raises(ValueError):
+            servicio.cargar_archivo(corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "plan.xlsx")
+
+    def test_archivo_invalido_lo_rechaza_sec03_antes_de_tocar_el_lector(self, servicio):
+        lector = _LectorFalso(resultado=ResultadoLectura(tipo=TipoArchivoIngesta.PDT))
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        commits_previos = servicio.llamadas["commit"]
+
+        with pytest.raises(ArchivoInvalido):
+            servicio.cargar_archivo(corte.id, TipoArchivoFuente.PDT, b"no es un xlsx", "plan.xlsx")
+
+        # SEC-03 corta ANTES del lector: ninguna transacción se abrió ni se
+        # llamó al lector (frontera ETL: Extract+Transform fuera de la
+        # escritura, y aquí ni siquiera llegó a Extract).
+        assert lector.llamadas == []
+        assert servicio.llamadas["commit"] == commits_previos
+        assert servicio.llamadas["rollback"] == 0
+
+    def test_carga_exitosa_llama_al_lector_reemplaza_metas_y_registra_el_archivo(self, servicio):
+        resultado = ResultadoLectura(
+            tipo=TipoArchivoIngesta.PDT,
+            filas={"metas": [{"cod_indicador_producto": "040110500", "principal": True}]},
+            conteos={"metas": 1},
+            advertencias=[],
+        )
+        lector = _LectorFalso(resultado=resultado)
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        commits_previos = servicio.llamadas["commit"]
+
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "plan_indicativo.xlsx"
+        )
+
+        # El lector recibe la vigencia del corte (alias_columna_programacion
+        # de pdt.py la necesita para resolver la columna de ese año).
+        assert lector.llamadas[0][2] == 2026
+        assert servicio._datos.llamadas_reemplazar_metas == [(corte.id, resultado.filas["metas"])]
+        assert archivo.tipo == TipoArchivoFuente.PDT
+        assert archivo.filas_reconocidas == 1
+        assert archivo.reutilizado is False
+        assert servicio._cortes.obtener(corte.id).archivos[TipoArchivoFuente.PDT] == archivo
+        assert servicio.llamadas["commit"] == commits_previos + 1
+        assert servicio.llamadas["rollback"] == 0
+
+    def test_nombre_de_archivo_saneado_es_el_que_se_registra(self, servicio):
+        """SEC-03 (sanitizar_nombre) descarta rutas: un intento de path
+        traversal en el nombre no debe llegar tal cual al registro."""
+        resultado = ResultadoLectura(
+            tipo=TipoArchivoIngesta.PDT, filas={"metas": []}, conteos={"metas": 0}
+        )
+        lector = _LectorFalso(resultado=resultado)
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "../../etc/plan.xlsx"
+        )
+
+        assert archivo.nombre_archivo == "plan.xlsx"
+        assert lector.llamadas[0][1] == "plan.xlsx"
+
+    def test_si_el_lector_rechaza_el_archivo_no_se_abre_transaccion(self, servicio):
+        lector = _LectorFalso(error=ArchivoInvalido("no corresponde al formato esperado"))
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        commits_previos = servicio.llamadas["commit"]
+
+        with pytest.raises(ArchivoInvalido):
+            servicio.cargar_archivo(corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "ejecucion.xlsx")
+
+        assert servicio.llamadas["commit"] == commits_previos
+        assert servicio.llamadas["rollback"] == 0
+        assert servicio._cortes.obtener(corte.id).archivos == {}
+
+    def test_si_falla_el_load_se_revierte_la_transaccion_sin_registrar_el_archivo(self, servicio):
+        resultado = ResultadoLectura(
+            tipo=TipoArchivoIngesta.PDT,
+            filas={"metas": [{"cod_indicador_producto": "040110500", "principal": True}]},
+            conteos={"metas": 1},
+        )
+        lector = _LectorFalso(resultado=resultado)
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        def _reemplazar_metas_que_falla(corte_id, metas):
+            raise RuntimeError("fallo simulado de la base de datos")
+
+        servicio._datos.reemplazar_metas = _reemplazar_metas_que_falla
+
+        with pytest.raises(RuntimeError):
+            servicio.cargar_archivo(corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "plan.xlsx")
+
+        assert servicio.llamadas["rollback"] == 1
+        assert servicio._cortes.obtener(corte.id).archivos == {}
+
+    def test_tipo_ejecucion_esta_bloqueado_hasta_resolver_hu03_be06(self, servicio):
+        """No se fabrica una implementación con datos que el lector real de
+        ejecución todavía no produce (ver Fase 1 de la entrega): el bloqueo
+        debe ser explícito, no un 500 silencioso ni datos inventados."""
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        lector = _LectorFalso(
+            resultado=ResultadoLectura(
+                tipo=TipoArchivoIngesta.EJECUCION, filas={"ejecucion": [], "contratacion": []}
+            )
+        )
+        servicio._lectores = {TipoArchivoFuente.EJECUCION: lector}
+
+        with pytest.raises(NotImplementedError):
+            servicio.cargar_archivo(
+                corte.id, TipoArchivoFuente.EJECUCION, _XLSX_VALIDO, "presupuestal.xlsx"
+            )
+
+    def test_tipo_proyectos_esta_bloqueado_hasta_resolver_hu04_be04(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        lector = _LectorFalso(
+            resultado=ResultadoLectura(tipo=TipoArchivoIngesta.PROYECTOS, filas={"proyectos": []})
+        )
+        servicio._lectores = {TipoArchivoFuente.PROYECTOS: lector}
+
+        with pytest.raises(NotImplementedError):
+            servicio.cargar_archivo(
+                corte.id, TipoArchivoFuente.PROYECTOS, _XLSX_VALIDO, "proyectos.xlsx"
+            )
+
+
+class TestCargarArchivoIntegracionPDT:
+    """Integración real (sin dobles) del lector PDT a través de
+    cargar_archivo: prueba de punta a punta que la orquestación de
+    [HU-02][BE-04] funciona con LectorPDT real, no solo con el doble."""
+
+    def _servicio_con_pdt_real(self, servicio: ServicioCortes) -> ServicioCortes:
+        servicio._lectores = {TipoArchivoFuente.PDT: LectorPDT()}
+        return servicio
+
+    def test_carga_el_pdt_real_y_reconoce_las_dos_metas(self, servicio):
+        self._servicio_con_pdt_real(servicio)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PDT, construir_pdt(), "plan_indicativo.xlsx"
+        )
+
+        assert archivo.filas_reconocidas == 2
+        metas_cargadas = servicio._datos.llamadas_reemplazar_metas[-1][1]
+        assert {m["cod_indicador_producto"] for m in metas_cargadas} == {"040110500", "170202300"}
+
+    def test_rechaza_total_si_falta_la_columna_principal_hu02_ca3(self, servicio):
+        self._servicio_con_pdt_real(servicio)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        with pytest.raises(ArchivoInvalido) as exc:
+            servicio.cargar_archivo(
+                corte.id,
+                TipoArchivoFuente.PDT,
+                construir_pdt(incluir_principal=False),
+                "plan_indicativo.xlsx",
+            )
+
+        assert exc.value.detalles["motivo"] == "columnas_faltantes"
+        # HU-02/CA-3: rechazo TOTAL, no quedan datos parciales.
+        assert servicio._cortes.obtener(corte.id).archivos == {}
+        assert servicio._datos.llamadas_reemplazar_metas == []

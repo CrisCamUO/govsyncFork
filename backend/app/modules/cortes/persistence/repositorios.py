@@ -44,7 +44,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCorte, TipoArchivoFuente
@@ -189,7 +189,44 @@ class RepositorioDatosCorteSQL(RepositorioDatosCorte):
         self._s = sesion
 
     def reemplazar_metas(self, corte_id: uuid.UUID, metas: list[dict[str, Any]]) -> int:
-        raise NotImplementedError("[HU-02][BE-04] Carga de metas del PDT")
+        """[HU-02][BE-04]: reemplazo total de las metas del corte.
+
+        "Reemplazo total" (docstring de la clase): borra las metas existentes
+        de `corte_id` antes de insertar las nuevas — así HU-06 (corregir un
+        PDT cargado por error) no acumula filas duplicadas. El `ON DELETE
+        CASCADE` de `meta_programacion_fisica.meta_id` y
+        `programacion_financiera.meta_id` (models.py) se encarga de sus
+        hijas; ninguna tarjeta de HU-02 llena esas dos tablas todavía — el
+        lector (`lectores/pdt.py`) solo produce el total del cuatrienio, no
+        una serie por año — así que no hay nada que reinsertar ahí.
+
+        UUID generado explícitamente al construir cada fila, siguiendo la
+        TRAMPA CONOCIDA documentada arriba (el `default=uuid.uuid4` de la
+        columna solo se evalúa al hacer flush): aquí no se lee `.id` antes
+        del flush, pero se mantiene la misma disciplina para no reintroducir
+        el error si este método sirve de plantilla para
+        `reemplazar_presupuesto`/`reemplazar_proyectos`.
+        """
+        self._s.execute(delete(MetaORM).where(MetaORM.corte_id == corte_id))
+
+        for meta in metas:
+            self._s.add(
+                MetaORM(
+                    id=uuid.uuid4(),
+                    corte_id=corte_id,
+                    cod_indicador_producto=meta["cod_indicador_producto"],
+                    cod_indicador_sistp=meta.get("cod_indicador_sistp"),
+                    codigo_producto_mga=meta.get("codigo_producto_mga"),
+                    nombre_producto=meta.get("nombre_producto"),
+                    unidad_medida=meta.get("unidad_medida"),
+                    meta_cuatrienio=meta.get("meta_cuatrienio"),
+                    es_principal=bool(meta["principal"]),
+                    bpin_relacionados=meta.get("bpin_relacionados"),
+                )
+            )
+
+        self._s.flush()
+        return len(metas)
 
     def reemplazar_presupuesto(
         self,
