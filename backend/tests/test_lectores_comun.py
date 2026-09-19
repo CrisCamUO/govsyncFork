@@ -20,6 +20,7 @@ cambios: la consolidación no les cambia el comportamiento observable.
 from __future__ import annotations
 
 import io
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -236,3 +237,43 @@ class TestTexto:
         assert _comun.texto(None) is None
         assert _comun.texto("   ") is None
         assert _comun.texto(float("nan")) is None
+
+
+class TestNumero:
+    """[HU-03][BE-01]: los cuatro formatos documentados en el docstring del
+    módulo (peculiaridad 5), verificados contra el archivo real de Santa Rosa
+    (Formato Resumido_EJECUCION_202607.xlsx)."""
+
+    def test_miles_con_punto_sin_decimales(self):
+        assert _comun.numero("$ 1.218.264.452") == Decimal("1218264452")
+
+    def test_miles_con_punto_y_decimales_con_coma(self):
+        assert _comun.numero("$230.000.000,00") == Decimal("230000000.00")
+
+    def test_plano_sin_separadores(self):
+        assert _comun.numero("133200000") == Decimal("133200000")
+
+    def test_decimal_plano_no_se_confunde_con_miles(self):
+        # Un solo punto con 16 dígitos detrás: claramente un decimal, no
+        # miles (el peso no maneja 3 decimales, y aquí son 16).
+        assert _comun.numero("0.3774091922543439") == Decimal("0.3774091922543439")
+
+    def test_miles_de_un_solo_grupo_de_tres_digitos(self):
+        # Caso límite: "133.200" sin coma. Se interpreta como miles (133200),
+        # no como decimal (133.2), porque el peso no maneja 3 decimales.
+        assert _comun.numero("133.200") == Decimal("133200")
+
+    def test_valor_ya_numerico_no_se_reformatea(self):
+        assert _comun.numero(21600000.0) == Decimal("21600000.0")
+        assert _comun.numero(28) == Decimal("28")
+        assert _comun.numero(Decimal("10.50")) == Decimal("10.50")
+
+    def test_vacio_o_no_reconocible_devuelve_none(self):
+        assert _comun.numero(None) is None
+        assert _comun.numero("") is None
+        assert _comun.numero("   ") is None
+        assert _comun.numero("N/A") is None
+        assert _comun.numero(float("nan")) is None
+
+    def test_negativo(self):
+        assert _comun.numero("-$50.000,00") == Decimal("-50000.00")
