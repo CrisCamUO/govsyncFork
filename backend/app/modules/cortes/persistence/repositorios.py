@@ -42,6 +42,7 @@ elimina la trampa de orden. La misma regla aplica a `CorteORM` aquí.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -111,6 +112,15 @@ class RepositorioCortesSQL(RepositorioCortes):
     def existe_borrador_activo(self) -> bool:
         """D11: consulta global, no filtra por vigencia (ver puertos.py)."""
         consulta = select(CorteORM.id).where(CorteORM.estado == EstadoCorte.BORRADOR).limit(1)
+        return self._s.scalars(consulta).first() is not None
+
+    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+        """D9: respaldo de aplicación del índice único `ux_corte_vigencia_fecha`."""
+        consulta = (
+            select(CorteORM.id)
+            .where(CorteORM.vigencia == vigencia, CorteORM.fecha_corte == fecha_corte)
+            .limit(1)
+        )
         return self._s.scalars(consulta).first() is not None
 
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:

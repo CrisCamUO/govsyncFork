@@ -93,7 +93,10 @@ class ServicioCortes:
         reimplementa aqui. D11 (docs/DECISIONES.md): se rechaza con 409 si
         ya existe un corte en BORRADOR, sin importar su vigencia — el
         indice unico parcial de la BD es el respaldo contra la condicion de
-        carrera, no el mecanismo principal. Tras guardar el corte en
+        carrera, no el mecanismo principal. D9: se rechaza con 409 si ya
+        existe un corte con la misma vigencia y fecha_corte exacta, por la
+        misma razon (el indice unico `ux_corte_vigencia_fecha` es el
+        respaldo, no el mecanismo principal). Tras guardar el corte en
         BORRADOR, se reutilizan automaticamente PDT y PROYECTOS del ultimo
         corte REGISTRADO de la MISMA vigencia (CA-5, D-05); EJECUCION nunca
         se reutiliza (CA-7). Todo dentro de la misma transaccion: si copiar
@@ -104,6 +107,16 @@ class ServicioCortes:
             raise OperacionNoPermitida(
                 "Ya existe un corte en BORRADOR. Corríjalo o regístrelo antes de crear uno nuevo.",
                 detalles={"motivo": "borrador_activo_existente"},
+            )
+        if self._cortes.existe_corte_duplicado(vigencia, fecha_corte):
+            raise OperacionNoPermitida(
+                f"Ya existe un corte con vigencia {vigencia} y fecha de corte "
+                f"{fecha_corte.isoformat()}.",
+                detalles={
+                    "motivo": "vigencia_fecha_duplicada",
+                    "vigencia": vigencia,
+                    "fecha_corte": fecha_corte.isoformat(),
+                },
             )
         corte = Corte(vigencia=vigencia, fecha_corte=fecha_corte)
         try:
