@@ -222,20 +222,25 @@ class ServicioCortes:
         uno genérico. Mismo criterio que `LectorArchivoFuente` (Strategy) en
         `ingesta/domain/contratos.py`; ver docstring de esa clase.
 
-        [HU-03][BE-06] y [HU-04][BE-04] quedan señalizadas explícitamente
-        como NO implementadas: ver el bloqueo documentado en la Fase 1 de
-        esta entrega (`ejecucion.py`/`_comun.py::numero` y
-        `proyectos.py::leer` siguen en NotImplementedError). Fabricar aquí
-        una implementación que dependa de datos que el lector no produce
-        violaría "nunca conviertas un supuesto en un requisito".
+        [HU-04][BE-04] queda señalizada explícitamente como NO implementada:
+        `proyectos.py::leer` sigue en NotImplementedError ([HU-04][BE-01]).
+        Fabricar aquí una implementación que dependa de datos que el lector
+        no produce violaría "nunca conviertas un supuesto en un requisito".
+
+        [HU-03][BE-06] SÍ está implementada: `lectores/ejecucion.py` produce
+        las claves "rubros"/"contratos"/"registros" y
+        `RepositorioDatosCorteSQL.reemplazar_presupuesto` las persiste (ver
+        su propio docstring para el orden de escritura y la resolución de
+        FKs).
         """
         if tipo is TipoArchivoFuente.PDT:
             return self._datos.reemplazar_metas(corte_id, resultado.filas["metas"])
         if tipo is TipoArchivoFuente.EJECUCION:
-            raise NotImplementedError(
-                "[HU-03][BE-06]: bloqueado — ver Fase 1 de la entrega "
-                "(lectores/ejecucion.py y _comun.py::numero no producen los "
-                "campos que exige RepositorioDatosCorte.reemplazar_presupuesto)."
+            return self._datos.reemplazar_presupuesto(
+                corte_id,
+                resultado.filas["rubros"],
+                resultado.filas["contratos"],
+                resultado.filas["registros"],
             )
         if tipo is TipoArchivoFuente.PROYECTOS:
             raise NotImplementedError(

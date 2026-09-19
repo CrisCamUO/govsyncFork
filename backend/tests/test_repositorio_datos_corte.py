@@ -18,12 +18,15 @@ from sqlalchemy import select
 
 from app.modules.cortes.domain.entidades import EstadoCorte, TipoArchivoFuente
 from app.modules.cortes.persistence.models import (
+    ContratoORM,
     CorteORM,
     MetaORM,
     MetaProgramacionFisicaORM,
     ProgramacionFinancieraORM,
     ProyectoIndicadorORM,
     ProyectoORM,
+    RegistroPresupuestalORM,
+    RubroORM,
 )
 from app.modules.cortes.persistence.repositorios import RepositorioDatosCorteSQL
 
@@ -310,3 +313,145 @@ def test_reemplazar_metas_no_hace_commit(sesion, repo) -> None:
     sesion.rollback()
 
     assert sesion.scalars(select(MetaORM)).all() == []
+
+
+def test_reemplazar_presupuesto_inserta_rubro_contrato_y_registro(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[
+            {
+                "codigo_rubro_nivel": "1.2.3",
+                "codigo_rubro_completo": "1.2.3",
+                "ultimo_nivel": True,
+                "apropiacion_definitiva": Decimal("1000000"),
+            }
+        ],
+        contratos=[
+            {
+                "numero_contrato": "C-001",
+                "objeto": "Mantenimiento de vías terciarias",
+                "valor_contrato": Decimal("500000"),
+                "valor_pagado": Decimal("200000"),
+            }
+        ],
+        registros=[
+            {
+                "numero_contrato": "C-001",
+                "codigo_rubro_crudo": "1.2.3",
+                "numero_cdp": "CDP-1",
+                "valor_cdp": Decimal("200000"),
+            }
+        ],
+    )
+
+    assert filas == 3  # 1 rubro + 1 contrato + 1 registro
+    rubro = sesion.scalars(select(RubroORM).where(RubroORM.corte_id == corte_id)).one()
+    contrato = sesion.scalars(select(ContratoORM).where(ContratoORM.corte_id == corte_id)).one()
+    registro = sesion.scalars(
+        select(RegistroPresupuestalORM).where(RegistroPresupuestalORM.contrato_id == contrato.id)
+    ).one()
+
+    assert rubro.codigo_rubro_nivel == "1.2.3"
+    assert contrato.numero_contrato == "C-001"
+    assert contrato.llave_sustituta is None  # DECISIÓN TÉCNICA (ejecucion.py)
+    # Resolución de FK: codigo_rubro_crudo del registro coincide con
+    # codigo_rubro_nivel del rubro -> rubro_id queda resuelto, no NULL.
+    assert registro.rubro_id == rubro.id
+    assert registro.numero_cdp == "CDP-1"
+
+
+def test_reemplazar_presupuesto_deja_rubro_id_nulo_cuando_el_codigo_no_cruza(sesion, repo) -> None:
+    """Decisión 5 de RegistroPresupuestalORM (models.py): NULLABLE — si el
+    código de rubro no cruza, se guarda el crudo y rubro_id queda None."""
+    corte_id = _crear_corte(sesion)
+
+    repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[],
+        contratos=[{"numero_contrato": "C-001"}],
+        registros=[{"numero_contrato": "C-001", "codigo_rubro_crudo": "9.9.9"}],
+    )
+
+    registro = sesion.scalars(select(RegistroPresupuestalORM)).one()
+    assert registro.rubro_id is None
+    assert registro.codigo_rubro_crudo == "9.9.9"
+
+
+def test_reemplazar_presupuesto_descarta_registro_sin_contrato_valido(sesion, repo) -> None:
+    """Defensivo (docstring de reemplazar_presupuesto): un registro cuyo
+    numero_contrato no está entre los contratos de esta misma carga no es
+    insertable (contrato_id es NOT NULL) — se descarta en vez de fallar."""
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[],
+        contratos=[{"numero_contrato": "C-001"}],
+        registros=[{"numero_contrato": "C-999", "codigo_rubro_crudo": None}],
+    )
+
+    assert filas == 1  # solo el contrato (0 rubros + 1 contrato + 0 registros insertados)
+    assert sesion.scalars(select(RegistroPresupuestalORM)).all() == []
+
+
+def test_reemplazar_presupuesto_es_reemplazo_total_y_borra_lo_anterior(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+    repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[{"codigo_rubro_nivel": "1.2.3", "ultimo_nivel": True}],
+        contratos=[{"numero_contrato": "C-001"}],
+        registros=[{"numero_contrato": "C-001", "codigo_rubro_crudo": "1.2.3"}],
+    )
+
+    filas = repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[{"codigo_rubro_nivel": "9.9.9", "ultimo_nivel": True}],
+        contratos=[{"numero_contrato": "C-002"}],
+        registros=[{"numero_contrato": "C-002", "codigo_rubro_crudo": "9.9.9"}],
+    )
+
+    assert filas == 3
+    assert [r.codigo_rubro_nivel for r in sesion.scalars(select(RubroORM))] == ["9.9.9"]
+    assert [c.numero_contrato for c in sesion.scalars(select(ContratoORM))] == ["C-002"]
+
+
+def test_reemplazar_presupuesto_borra_en_cascada_los_registros_del_contrato_anterior(
+    sesion, repo
+) -> None:
+    """ON DELETE CASCADE de registro_presupuestal.contrato_id (models.py):
+    al reemplazar, ningún registro debe quedar huérfano apuntando a un
+    contrato ya borrado."""
+    corte_id = _crear_corte(sesion)
+    contrato_anterior_id = uuid.uuid4()
+    sesion.add(ContratoORM(id=contrato_anterior_id, corte_id=corte_id, numero_contrato="C-VIEJO"))
+    sesion.add(
+        RegistroPresupuestalORM(id=uuid.uuid4(), contrato_id=contrato_anterior_id, numero_cdp="X")
+    )
+    sesion.flush()
+
+    repo.reemplazar_presupuesto(corte_id, rubros=[], contratos=[], registros=[])
+
+    assert (
+        sesion.scalars(
+            select(RegistroPresupuestalORM).where(
+                RegistroPresupuestalORM.contrato_id == contrato_anterior_id
+            )
+        ).all()
+        == []
+    )
+
+
+def test_reemplazar_presupuesto_no_hace_commit(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    repo.reemplazar_presupuesto(
+        corte_id,
+        rubros=[{"codigo_rubro_nivel": "1.2.3", "ultimo_nivel": True}],
+        contratos=[],
+        registros=[],
+    )
+    sesion.rollback()
+
+    assert sesion.scalars(select(RubroORM)).all() == []

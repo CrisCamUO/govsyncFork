@@ -35,18 +35,19 @@ from app.modules.cortes.persistence.repositorios import (
     RepositorioCortesSQL,
     RepositorioDatosCorteSQL,
 )
+from app.modules.ingesta.persistence.lectores.ejecucion import LectorEjecucion
 from app.modules.ingesta.persistence.lectores.pdt import LectorPDT
 
 SesionDep = Annotated[Session, Depends(get_session)]
 
-#: [HU-02][BE-04]: registro de lectores disponibles (Strategy). Solo PDT
-#: tiene lector funcional hoy — EJECUCION y PROYECTOS quedan deliberadamente
-#: fuera hasta que sus lectores estén completos (ver casos_uso.py::
-#: _cargar_resultado y el bloqueo documentado en la entrega de [HU-03][BE-06]
-#: / [HU-04][BE-04]); `cargar_archivo` ya maneja con claridad el tipo sin
-#: lector registrado.
+#: [HU-02][BE-04]/[HU-03][BE-06]: registro de lectores disponibles (Strategy).
+#: PDT y EJECUCION tienen lector + carga (`reemplazar_*`) funcionales. PROYECTOS
+#: queda deliberadamente fuera: `lectores/proyectos.py::leer` sigue en
+#: NotImplementedError ([HU-04][BE-01]) — `cargar_archivo` ya maneja con
+#: claridad el tipo sin lector registrado (ver casos_uso.py).
 _LECTORES_DISPONIBLES = {
     TipoArchivoFuente.PDT: LectorPDT(),
+    TipoArchivoFuente.EJECUCION: LectorEjecucion(),
 }
 
 
