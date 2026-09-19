@@ -12,9 +12,12 @@ import pytest
 from openpyxl import Workbook
 
 from app.modules.ingesta.persistence.lectores import _comun
-from app.modules.ingesta.persistence.lectores.proyectos import resolver_hoja_proyectos
+from app.modules.ingesta.persistence.lectores.proyectos import (
+    LectorProyectos,
+    resolver_hoja_proyectos,
+)
 from app.shared.errors import ArchivoInvalido
-from tests.fabricas import BPIN_1, HOJA_PROYECTOS, _a_bytes, construir_proyectos
+from tests.fabricas import BPIN_1, BPIN_2, HOJA_PROYECTOS, _a_bytes, construir_proyectos
 
 
 class TestResolverHojaProyectos:
@@ -63,3 +66,92 @@ def test_celdas_combinadas_de_proyecto_se_propagan_a_la_fila_de_contrato() -> No
 
     assert propagado["codigo bpin"].tolist() == [BPIN_1, BPIN_1]
     assert propagado["nombre del proyecto"].nunique() == 1
+
+
+class TestLeer:
+    """[HU-04][BE-01]: leer() completo — deduplicación proyecto/contrato,
+    separación de indicadores multivalor (BE-03, vía
+    CodigoIndicadorProducto.extraer_todos, ya probada aparte) y
+    conservación de BPIN tal cual (CA-2)."""
+
+    def test_caso_feliz_deduplica_proyecto_y_separa_indicadores(self) -> None:
+        resultado = LectorProyectos().leer(construir_proyectos(), "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.conteos == {"proyectos": 1}
+        assert resultado.advertencias == []
+        proyecto = resultado.filas["proyectos"][0]
+        assert proyecto["bpin"] == BPIN_1
+        assert proyecto["nombre_proyecto"] == "Mejoramiento de vías terciarias del municipio"
+        assert proyecto["codigos_indicador"] == ["170202300", "330105300"]
+
+    def test_dos_proyectos_distintos_no_se_fusionan(self) -> None:
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Nombre del proyecto", "Indicador de producto", "No CONTRATO"])
+        hoja.append([BPIN_1, "Proyecto uno", "170202300", None])
+        hoja.append([BPIN_2, "Proyecto dos", "330105300", None])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.conteos == {"proyectos": 2}
+        assert [p["bpin"] for p in resultado.filas["proyectos"]] == [BPIN_1, BPIN_2]
+
+    def test_bpin_con_formato_invalido_se_conserva_tal_cual(self) -> None:
+        """CA-2: 'tal cual', incluso si no cumple los 15 dígitos — no se
+        rechaza ni se normaliza (a diferencia de CodigoBpin.desde_crudo)."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Nombre del proyecto", "Indicador de producto"])
+        hoja.append(["BPIN-MAL-FORMADO", "Proyecto raro", "170202300"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.filas["proyectos"][0]["bpin"] == "BPIN-MAL-FORMADO"
+
+    def test_columna_nombre_proyecto_ausente_no_rechaza_el_archivo(self) -> None:
+        """nombre_proyecto es opcional (CA-3: solo bpin+indicador son ancla)."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Indicador de producto"])
+        hoja.append([BPIN_1, "170202300"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.filas["proyectos"][0]["nombre_proyecto"] is None
+
+    def test_indicador_no_reconocible_conserva_el_proyecto_con_advertencia(self) -> None:
+        """CA-4 no exige rechazar el proyecto si su indicador no separa en
+        ningún código válido: se conserva (tal cual, CA-2) con advertencia,
+        no se descarta el proyecto completo."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Indicador de producto"])
+        hoja.append([BPIN_1, "texto sin ningún código de 9 dígitos"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.filas["proyectos"][0]["codigos_indicador"] == []
+        assert len(resultado.advertencias) == 1
+        assert BPIN_1 in resultado.advertencias[0]
+
+    def test_indicador_con_codigos_repetidos_no_los_deduplica(self) -> None:
+        """CA-4 (docstring de extraer_todos): un código repetido en la celda
+        es información real, no un error — no se colapsa."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Indicador de producto"])
+        hoja.append([BPIN_1, "170202300\n170202300"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.filas["proyectos"][0]["codigos_indicador"] == ["170202300", "170202300"]

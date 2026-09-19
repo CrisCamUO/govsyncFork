@@ -52,12 +52,15 @@ from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, EstadoCort
 from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDatosCorte
 from app.modules.cortes.persistence.models import (
     ArchivoFuenteORM,
+    ContratoORM,
     CorteORM,
     MetaORM,
     MetaProgramacionFisicaORM,
     ProgramacionFinancieraORM,
     ProyectoIndicadorORM,
     ProyectoORM,
+    RegistroPresupuestalORM,
+    RubroORM,
 )
 from app.shared.errors import RecursoNoEncontrado
 
@@ -245,10 +248,179 @@ class RepositorioDatosCorteSQL(RepositorioDatosCorte):
         contratos: list[dict[str, Any]],
         registros: list[dict[str, Any]],
     ) -> int:
-        raise NotImplementedError("[HU-03][BE-06] Carga de ejecución y contratación")
+        """[HU-03][BE-06]: reemplazo total de Rubro/Contrato/RegistroPresupuestal.
+
+        Orden de escritura (no es arbitrario):
+
+        1. Borra `contrato` y `rubro` existentes de `corte_id`. El `ON DELETE
+           CASCADE` de `registro_presupuestal.contrato_id` (models.py) se
+           encarga de las hijas — igual que `reemplazar_metas` con sus
+           tablas hijas. No hace falta borrar `registro_presupuestal` aparte.
+        2. Inserta `rubro`, construyendo `mapa_rubros: codigo_rubro_nivel ->
+           id` MIENTRAS se insertan (no después): es la misma TRAMPA
+           CONOCIDA documentada en el docstring del módulo (el `default` de
+           `id` solo se evalúa al hacer flush) — se genera el UUID
+           explícitamente antes de usarlo como valor del mapa.
+        3. Inserta `contrato`, construyendo `mapa_contratos: numero_contrato
+           -> id` de la misma forma. `llave_sustituta` queda NULL (DECISIÓN
+           TÉCNICA documentada en `lectores/ejecucion.py`, delegada al
+           equipo: no hay otro dato en el archivo real para calcularla).
+        4. Inserta `registro_presupuestal`, resolviendo `contrato_id` con
+           `mapa_contratos` (obligatorio: si no aparece, el registro no
+           tiene contrato válido y se descarta — no debería ocurrir, porque
+           `_leer_contratos_y_registros` siempre agrupa cada registro bajo
+           el mismo NumeroContrato con el que arma `contratos`, pero esta
+           función no debe asumir esa invariante del lector sin verificarla)
+           y `rubro_id` con `mapa_rubros` buscando por `codigo_rubro_crudo`
+           (Decisión 5 de RegistroPresupuestalORM: NULLABLE — si el código no
+           cruza, `rubro_id` queda None y `codigo_rubro_crudo` conserva el
+           dato original para trazabilidad).
+
+        `valor_pagos` de cada registro queda NULL: ver DECISIÓN TÉCNICA en
+        `lectores/ejecucion.py` (la columna "Pagos" del archivo real es a
+        nivel de contrato, no hay desglose por CDP/registro individual).
+
+        SUPUESTO (MENOR — registrado, no bloqueante): el valor de retorno es
+        `len(rubros) + len(contratos) + registros_insertados` — el conteo
+        REAL de filas insertadas en las tres tablas, no el tamaño de las
+        listas recibidas: un registro descartado por no tener contrato
+        válido (ver el `continue` de abajo) no cuenta, para no reportar como
+        "reconocida" una fila que en realidad se perdió. Ninguna CA de HU-03
+        define qué debe significar `ArchivoFuente.filas_reconocidas` cuando
+        una sola carga llena tres tablas a la vez (a diferencia de
+        `reemplazar_metas`, una sola tabla); si el equipo prefiere otro
+        criterio (p. ej. solo `registros_insertados`, por ser la unidad "una
+        fila del archivo original"), es un cambio de una línea aquí, sin
+        impacto en el resto del pipeline.
+        """
+        self._s.execute(delete(ContratoORM).where(ContratoORM.corte_id == corte_id))
+        self._s.execute(delete(RubroORM).where(RubroORM.corte_id == corte_id))
+
+        mapa_rubros: dict[str, uuid.UUID] = {}
+        for rubro in rubros:
+            nueva_id = uuid.uuid4()
+            mapa_rubros[rubro["codigo_rubro_nivel"]] = nueva_id
+            self._s.add(
+                RubroORM(
+                    id=nueva_id,
+                    corte_id=corte_id,
+                    codigo_rubro_nivel=rubro["codigo_rubro_nivel"],
+                    codigo_rubro_ccpet=rubro.get("codigo_rubro_ccpet"),
+                    codigo_rubro_completo=rubro.get("codigo_rubro_completo"),
+                    codigo_sector_ccpet=rubro.get("codigo_sector_ccpet"),
+                    codigo_producto_ccpet=rubro.get("codigo_producto_ccpet"),
+                    cod_indicador_producto=rubro.get("cod_indicador_producto"),
+                    codigo_tipo_gasto=rubro.get("codigo_tipo_gasto"),
+                    nombre_financiacion=rubro.get("nombre_financiacion"),
+                    ultimo_nivel=bool(rubro["ultimo_nivel"]),
+                    apropiacion_definitiva=rubro.get("apropiacion_definitiva"),
+                    disponibilidad_acumulada=rubro.get("disponibilidad_acumulada"),
+                    compromiso_acumulado=rubro.get("compromiso_acumulado"),
+                    obligacion_acumulada=rubro.get("obligacion_acumulada"),
+                    pago_acumulado=rubro.get("pago_acumulado"),
+                )
+            )
+
+        mapa_contratos: dict[str, uuid.UUID] = {}
+        for contrato in contratos:
+            nueva_id = uuid.uuid4()
+            mapa_contratos[contrato["numero_contrato"]] = nueva_id
+            self._s.add(
+                ContratoORM(
+                    id=nueva_id,
+                    corte_id=corte_id,
+                    proyecto_id=None,
+                    numero_contrato=contrato["numero_contrato"],
+                    llave_sustituta=None,
+                    objeto=contrato.get("objeto"),
+                    modalidad_seleccion=contrato.get("modalidad_seleccion"),
+                    tipo_gasto=contrato.get("tipo_gasto"),
+                    nit_contratista=contrato.get("nit_contratista"),
+                    nombre_contratista=contrato.get("nombre_contratista"),
+                    valor_contrato=contrato.get("valor_contrato"),
+                    valor_pagado=contrato.get("valor_pagado"),
+                    bpin=contrato.get("bpin"),
+                    cod_indicador_producto=contrato.get("cod_indicador_producto"),
+                )
+            )
+
+        registros_insertados = 0
+        for registro in registros:
+            contrato_id = mapa_contratos.get(registro["numero_contrato"])
+            if contrato_id is None:
+                # Defensivo: no debería ocurrir (ver docstring arriba), pero
+                # un registro sin contrato válido no es insertable
+                # (contrato_id es NOT NULL en registro_presupuestal) — se
+                # descarta en vez de dejar que el INSERT falle con un error
+                # de integridad crudo, mismo criterio que _leer_rubros con
+                # UltimoNivel no reconocible. NO cuenta en el retorno: contar
+                # una fila descartada como "reconocida" ocultaría la pérdida.
+                continue
+            self._s.add(
+                RegistroPresupuestalORM(
+                    id=uuid.uuid4(),
+                    contrato_id=contrato_id,
+                    rubro_id=mapa_rubros.get(registro.get("codigo_rubro_crudo")),
+                    codigo_rubro_crudo=registro.get("codigo_rubro_crudo"),
+                    numero_cdp=registro.get("numero_cdp"),
+                    fecha_cdp=registro.get("fecha_cdp"),
+                    valor_cdp=registro.get("valor_cdp"),
+                    numero_registro=registro.get("numero_registro"),
+                    fecha_registro=registro.get("fecha_registro"),
+                    valor_registro_ptal=registro.get("valor_registro_ptal"),
+                    valor_pagos=None,
+                )
+            )
+            registros_insertados += 1
+
+        self._s.flush()
+        return len(rubros) + len(contratos) + registros_insertados
 
     def reemplazar_proyectos(self, corte_id: uuid.UUID, proyectos: list[dict[str, Any]]) -> int:
-        raise NotImplementedError("[HU-04][BE-05] Carga de la plantilla de proyectos BPIN")
+        """[HU-04][BE-04]: reemplazo total de Proyecto + ProyectoIndicador.
+
+        Más simple que `reemplazar_presupuesto`: `ProyectoIndicadorORM` SÍ es
+        una relationship con cascade (`ProyectoORM.indicadores`, igual que
+        `_copiar_proyectos` de abajo) — no hace falta un mapa de ids manual,
+        SQLAlchemy resuelve `proyecto_id` de las hijas al hacer flush.
+
+        Deduplicación de códigos de indicador: `CodigoIndicadorProducto.
+        extraer_todos` (el lector, `proyectos.py`) NO deduplica a propósito
+        (ver su docstring: un código repetido en la celda es información
+        real). Pero `ProyectoIndicadorORM` tiene
+        `UniqueConstraint(proyecto_id, cod_indicador_producto)` — insertar el
+        duplicado tal cual rompería el INSERT con un error de integridad
+        crudo. Se deduplica AQUÍ, en la etapa Load (con `dict.fromkeys` para
+        conservar el orden de aparición), no en el lector: es la misma
+        separación de responsabilidades que ya aplica
+        `reemplazar_presupuesto` (extracción vs. persistencia).
+
+        SUPUESTO (MENOR — mismo criterio ya registrado en
+        `reemplazar_presupuesto`): el retorno es
+        `len(proyectos) + indicadores_insertados` (total de filas
+        insertadas, después de deduplicar) — no hay CA que defina qué debe
+        significar `ArchivoFuente.filas_reconocidas` para esta carga.
+        """
+        self._s.execute(delete(ProyectoORM).where(ProyectoORM.corte_id == corte_id))
+
+        indicadores_insertados = 0
+        for proyecto in proyectos:
+            nuevo = ProyectoORM(
+                id=uuid.uuid4(),
+                corte_id=corte_id,
+                bpin=proyecto.get("bpin"),
+                nombre_proyecto=proyecto.get("nombre_proyecto"),
+                indicador_producto_raw=proyecto.get("indicador_producto_raw"),
+            )
+            for codigo in dict.fromkeys(proyecto.get("codigos_indicador", ())):
+                nuevo.indicadores.append(
+                    ProyectoIndicadorORM(id=uuid.uuid4(), cod_indicador_producto=codigo)
+                )
+                indicadores_insertados += 1
+            self._s.add(nuevo)
+
+        self._s.flush()
+        return len(proyectos) + indicadores_insertados
 
     def copiar_datos(
         self, origen_id: uuid.UUID, destino_id: uuid.UUID, tipo: TipoArchivoFuente

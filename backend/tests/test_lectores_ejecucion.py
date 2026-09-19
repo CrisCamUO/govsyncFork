@@ -9,11 +9,17 @@ se exige subirlas por separado (es un solo archivo, dos hojas).
 from __future__ import annotations
 
 import io
+from decimal import Decimal
 
 import pytest
 from openpyxl import Workbook
 
-from app.modules.ingesta.persistence.lectores.ejecucion import LectorEjecucion, resolver_hojas
+from app.modules.ingesta.persistence.lectores.ejecucion import (
+    LectorEjecucion,
+    _leer_contratos_y_registros,
+    _leer_rubros,
+    resolver_hojas,
+)
 from app.shared.errors import ArchivoInvalido
 from tests.fabricas import (
     COD_B,
@@ -66,7 +72,13 @@ class TestLeer:
             construir_ejecucion(), "presupuestal.xlsx", vigencia=2026
         )
 
-        assert resultado.conteos == {"ejecucion": 1, "contratacion": 1}
+        assert resultado.conteos == {
+            "ejecucion": 1,
+            "contratacion": 1,
+            "rubros": 1,
+            "contratos": 1,
+            "registros": 1,
+        }
         assert resultado.advertencias == []
         assert resultado.filas["ejecucion"][0]["cod_indicador_producto"] == COD_B
         assert resultado.filas["contratacion"][0]["cod_indicador_producto"] == COD_B
@@ -143,3 +155,190 @@ class TestLeer:
         contrato = resultado.filas["contratacion"][0]
         assert contrato["numero_contrato"] is None
         assert contrato["descripcion_contrato"] is None
+
+
+def _libro(hoja: str, filas: list[list]) -> bytes:
+    """Construye un libro con una sola hoja llamada `hoja` y esas filas
+    (la primera es el encabezado) — atajo para los casos de _leer_rubros y
+    _leer_contratos_y_registros, que no necesitan la otra pestaña."""
+    libro = Workbook()
+    libro.remove(libro.active)
+    ws = libro.create_sheet(hoja)
+    for fila in filas:
+        ws.append(fila)
+    buffer = io.BytesIO()
+    libro.save(buffer)
+    return buffer.getvalue()
+
+
+class TestLeerRubros:
+    """[HU-03][BE-06]: extracción de la pestaña de ejecución completa para
+    persistencia de Rubro (independiente de _leer_pestana/CA-6)."""
+
+    def test_fila_totales_se_descarta_sin_advertencia(self) -> None:
+        contenido = _libro(
+            HOJA_EJECUCION,
+            [
+                ["CodigoRubroNivel", "UltimoNivel"],
+                ["1.2.3", "True"],
+                ["", "False"],  # fila TOTALES: sin codigo_rubro_nivel
+            ],
+        )
+
+        rubros, advertencias = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert len(rubros) == 1
+        assert rubros[0]["codigo_rubro_nivel"] == "1.2.3"
+        assert advertencias == []
+
+    def test_codigo_rubro_nivel_duplicado_se_descarta_con_advertencia(self) -> None:
+        contenido = _libro(
+            HOJA_EJECUCION,
+            [
+                ["CodigoRubroNivel", "UltimoNivel"],
+                ["1.2.3", "True"],
+                ["1.2.3", "False"],
+            ],
+        )
+
+        rubros, advertencias = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert len(rubros) == 1
+        assert rubros[0]["ultimo_nivel"] is True  # se conserva la primera aparición
+        assert len(advertencias) == 1
+        assert "1.2.3" in advertencias[0]
+
+    def test_ultimo_nivel_no_reconocible_se_descarta_con_advertencia(self) -> None:
+        contenido = _libro(
+            HOJA_EJECUCION,
+            [
+                ["CodigoRubroNivel", "UltimoNivel"],
+                ["1.2.3", "N/A"],
+            ],
+        )
+
+        rubros, advertencias = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert rubros == []
+        assert len(advertencias) == 1
+        assert "UltimoNivel" in advertencias[0]
+
+    def test_codigo_rubro_completo_replica_codigo_rubro_nivel(self) -> None:
+        """DECISIÓN TÉCNICA (docstring del módulo): no hay un segundo dato
+        distinto para codigo_rubro_completo, se llena con el mismo valor."""
+        contenido = _libro(
+            HOJA_EJECUCION,
+            [
+                ["CodigoRubroNivel", "UltimoNivel"],
+                ["1.2.3", "True"],
+            ],
+        )
+
+        rubros, _ = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert rubros[0]["codigo_rubro_completo"] == rubros[0]["codigo_rubro_nivel"] == "1.2.3"
+
+    def test_montos_opcionales_se_parsean_con_numero(self) -> None:
+        contenido = _libro(
+            HOJA_EJECUCION,
+            [
+                ["CodigoRubroNivel", "UltimoNivel", "ApropiacionDefinitiva"],
+                ["1.2.3", "True", "$ 1.218.264.452"],
+            ],
+        )
+
+        rubros, _ = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert rubros[0]["apropiacion_definitiva"] == Decimal("1218264452")
+
+    def test_columna_ancla_ausente_degrada_en_vez_de_rechazar_archivo(self) -> None:
+        """Ninguna CA de HU-03 exige rechazar TODO el archivo si falta
+        CodigoRubroNivel: se degrada con advertencia (no ArchivoInvalido)."""
+        contenido = _libro(HOJA_EJECUCION, [["OtraColumna"], ["x"]])
+
+        rubros, advertencias = _leer_rubros(contenido, "presupuestal.xlsx", HOJA_EJECUCION)
+
+        assert rubros == []
+        assert len(advertencias) == 1
+        assert "CodigoRubroNivel" in advertencias[0]
+
+
+class TestLeerContratosYRegistros:
+    """[HU-03][BE-06]: extracción de CONTRATACION completa para persistencia
+    de Contrato + RegistroPresupuestal (independiente de _leer_pestana/CA-6)."""
+
+    def test_numero_contrato_vacio_se_descarta_con_advertencia(self) -> None:
+        # La fila necesita OTRO dato además de NumeroContrato vacío: si toda
+        # la fila fuera NaN, `_comun.leer_hoja` ya la descarta (dropna) antes
+        # de que esta función la vea — no sería un caso real de este código.
+        contenido = _libro(
+            HOJA_CONTRATACION,
+            [
+                ["NumeroContrato", "Objeto"],
+                ["", "Contrato sin número"],
+            ],
+        )
+
+        contratos, registros, advertencias = _leer_contratos_y_registros(
+            contenido, "presupuestal.xlsx", HOJA_CONTRATACION
+        )
+
+        assert contratos == []
+        assert registros == []
+        assert len(advertencias) == 1
+        assert "NumeroContrato" in advertencias[0]
+
+    def test_agrupa_por_numero_contrato_y_toma_el_maximo_de_valor_contrato_y_pagado(self) -> None:
+        """45 filas reales repiten (NumeroContrato, Numero Registro) con
+        rubros distintos (docstring del módulo): un Contrato por número,
+        un RegistroPresupuestal por fila cruda."""
+        contenido = _libro(
+            HOJA_CONTRATACION,
+            [
+                ["NumeroContrato", "Valor Contrato", "Pagos", "Numero Registro"],
+                ["C-001", "100000000", "50000000", "REG-1"],
+                ["C-001", "80000000", "70000000", "REG-2"],
+            ],
+        )
+
+        contratos, registros, advertencias = _leer_contratos_y_registros(
+            contenido, "presupuestal.xlsx", HOJA_CONTRATACION
+        )
+
+        assert advertencias == []
+        assert len(contratos) == 1
+        assert contratos[0]["numero_contrato"] == "C-001"
+        assert contratos[0]["valor_contrato"] == Decimal("100000000")
+        assert contratos[0]["valor_pagado"] == Decimal("70000000")
+        assert len(registros) == 2
+        assert {r["numero_registro"] for r in registros} == {"REG-1", "REG-2"}
+
+    def test_bpin_y_cod_indicador_toman_el_primer_valor_no_nulo_del_grupo(self) -> None:
+        contenido = _libro(
+            HOJA_CONTRATACION,
+            [
+                ["NumeroContrato", "Codigo Bpin"],
+                ["C-001", ""],
+                ["C-001", "2026760010123"],
+            ],
+        )
+
+        contratos, _, _ = _leer_contratos_y_registros(
+            contenido, "presupuestal.xlsx", HOJA_CONTRATACION
+        )
+
+        assert contratos[0]["bpin"] == "2026760010123"
+
+    def test_columna_ancla_ausente_degrada_en_vez_de_rechazar_archivo(self) -> None:
+        """Ninguna CA de HU-03 exige rechazar TODO el archivo si falta
+        NumeroContrato: se degrada con advertencia (no ArchivoInvalido)."""
+        contenido = _libro(HOJA_CONTRATACION, [["OtraColumna"], ["x"]])
+
+        contratos, registros, advertencias = _leer_contratos_y_registros(
+            contenido, "presupuestal.xlsx", HOJA_CONTRATACION
+        )
+
+        assert contratos == []
+        assert registros == []
+        assert len(advertencias) == 1
+        assert "NumeroContrato" in advertencias[0]

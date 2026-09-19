@@ -77,16 +77,22 @@ class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
     def __init__(self) -> None:
         self.llamadas_copiar_datos: list[tuple[uuid.UUID, uuid.UUID, TipoArchivoFuente]] = []
         self.llamadas_reemplazar_metas: list[tuple[uuid.UUID, list[dict[str, Any]]]] = []
+        self.llamadas_reemplazar_presupuesto: list[
+            tuple[uuid.UUID, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]
+        ] = []
+        self.llamadas_reemplazar_proyectos: list[tuple[uuid.UUID, list[dict[str, Any]]]] = []
 
     def reemplazar_metas(self, corte_id: uuid.UUID, metas: list[dict[str, Any]]) -> int:
         self.llamadas_reemplazar_metas.append((corte_id, metas))
         return len(metas)
 
     def reemplazar_presupuesto(self, corte_id, rubros, contratos, registros) -> int:
-        raise NotImplementedError
+        self.llamadas_reemplazar_presupuesto.append((corte_id, rubros, contratos, registros))
+        return len(rubros) + len(contratos) + len(registros)
 
     def reemplazar_proyectos(self, corte_id: uuid.UUID, proyectos: list[dict[str, Any]]) -> int:
-        raise NotImplementedError
+        self.llamadas_reemplazar_proyectos.append((corte_id, proyectos))
+        return len(proyectos)
 
     def copiar_datos(self, origen_id: uuid.UUID, destino_id: uuid.UUID, tipo) -> int:
         self.llamadas_copiar_datos.append((origen_id, destino_id, tipo))
@@ -438,34 +444,56 @@ class TestCargarArchivo:
         assert servicio.llamadas["rollback"] == 1
         assert servicio._cortes.obtener(corte.id).archivos == {}
 
-    def test_tipo_ejecucion_esta_bloqueado_hasta_resolver_hu03_be06(self, servicio):
-        """No se fabrica una implementación con datos que el lector real de
-        ejecución todavía no produce (ver Fase 1 de la entrega): el bloqueo
-        debe ser explícito, no un 500 silencioso ni datos inventados."""
+    def test_tipo_ejecucion_despacha_a_reemplazar_presupuesto(self, servicio):
+        """[HU-03][BE-06]: cargar_archivo despacha las tres listas nuevas de
+        ResultadoLectura.filas ("rubros"/"contratos"/"registros") a
+        reemplazar_presupuesto, y usa su retorno como filas_reconocidas —
+        mismo patrón que el despacho de PDT a reemplazar_metas."""
         corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        rubros = [{"codigo_rubro_nivel": "1.2.3", "ultimo_nivel": True}]
+        contratos = [{"numero_contrato": "C-001"}]
+        registros = [{"numero_contrato": "C-001", "codigo_rubro_crudo": "1.2.3"}]
         lector = _LectorFalso(
             resultado=ResultadoLectura(
-                tipo=TipoArchivoIngesta.EJECUCION, filas={"ejecucion": [], "contratacion": []}
+                tipo=TipoArchivoIngesta.EJECUCION,
+                filas={
+                    "ejecucion": [],
+                    "contratacion": [],
+                    "rubros": rubros,
+                    "contratos": contratos,
+                    "registros": registros,
+                },
             )
         )
         servicio._lectores = {TipoArchivoFuente.EJECUCION: lector}
 
-        with pytest.raises(NotImplementedError):
-            servicio.cargar_archivo(
-                corte.id, TipoArchivoFuente.EJECUCION, _XLSX_VALIDO, "presupuestal.xlsx"
-            )
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.EJECUCION, _XLSX_VALIDO, "presupuestal.xlsx"
+        )
 
-    def test_tipo_proyectos_esta_bloqueado_hasta_resolver_hu04_be04(self, servicio):
+        assert servicio._datos.llamadas_reemplazar_presupuesto == [
+            (corte.id, rubros, contratos, registros)
+        ]
+        assert archivo.filas_reconocidas == 3  # len(rubros)+len(contratos)+len(registros)
+
+    def test_tipo_proyectos_despacha_a_reemplazar_proyectos(self, servicio):
+        """[HU-04][BE-04]: cargar_archivo despacha resultado.filas["proyectos"]
+        a reemplazar_proyectos, mismo patrón que PDT/EJECUCION."""
         corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        proyectos = [{"bpin": "202500000050132", "codigos_indicador": ["170202300"]}]
         lector = _LectorFalso(
-            resultado=ResultadoLectura(tipo=TipoArchivoIngesta.PROYECTOS, filas={"proyectos": []})
+            resultado=ResultadoLectura(
+                tipo=TipoArchivoIngesta.PROYECTOS, filas={"proyectos": proyectos}
+            )
         )
         servicio._lectores = {TipoArchivoFuente.PROYECTOS: lector}
 
-        with pytest.raises(NotImplementedError):
-            servicio.cargar_archivo(
-                corte.id, TipoArchivoFuente.PROYECTOS, _XLSX_VALIDO, "proyectos.xlsx"
-            )
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PROYECTOS, _XLSX_VALIDO, "proyectos.xlsx"
+        )
+
+        assert servicio._datos.llamadas_reemplazar_proyectos == [(corte.id, proyectos)]
+        assert archivo.filas_reconocidas == 1
 
 
 class TestCargarArchivoIntegracionPDT:
