@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 
 from app.shared.errors import ReglaDeNegocioViolada
 
@@ -119,15 +120,50 @@ def _normalizar_a_longitud(texto: str, longitud: int, *, tolerancia: int = 0) ->
 _SEPARADORES_MULTIVALOR = re.compile(r"[,;\-\s]+")
 
 
+class CategoriaDescarte(StrEnum):
+    """Por qué un candidato numérico terminó en `descartes`, distinguiendo
+    tres situaciones estructurales muy distintas que antes compartían un
+    único motivo genérico (hallazgo de Juan David sobre [HU-04][BE-03],
+    ver docs/DECISIONES.md D14). NO cambia qué termina en `codigos` vs
+    `descartes` — solo clasifica lo segundo para que quien lo consuma
+    (p. ej. la vista previa de [HU-04][FE-03]) pueda priorizar.
+
+    Basada puramente en la LONGITUD del candidato frente a
+    `LONGITUD_INDICADOR`/`TOLERANCIA_CERO_PERDIDO`, ya calculadas — no se
+    introduce ningún supuesto nuevo sobre formatos de fecha, porcentaje o
+    conteo (eso sería meter juicio de negocio en una función mecánica).
+    """
+
+    #: Longitud == LONGITUD_INDICADOR - TOLERANCIA_CERO_PERDIDO (8, hoy).
+    #: Candidato con más probabilidad real de ser un código de 9 con el
+    #: cero comido por Excel — mismo criterio que ya usa
+    #: `desde_crudo`/`_normalizar_a_longitud`, aquí solo para clasificar
+    #: (no se normaliza: sigue sin fabricarse un código que no existe).
+    #: Prioridad alta de revisión.
+    POSIBLE_CERO_PERDIDO = "posible_cero_perdido"
+    #: Longitud menor a LONGITUD_INDICADOR y distinta de la anterior
+    #: (1 a `LONGITUD_INDICADOR - TOLERANCIA_CERO_PERDIDO - 1` dígitos).
+    #: Casi siempre ruido de texto libre: un año, un conteo, un
+    #: porcentaje sin "%". Prioridad baja de revisión.
+    LONGITUD_CORTA = "longitud_corta"
+    #: Longitud mayor a LONGITUD_INDICADOR y no múltiplo de ella (si fuera
+    #: múltiplo, ya se habría segmentado en códigos válidos). Casi siempre
+    #: un intento real fallido: un BPIN, un monto sin separadores.
+    #: Prioridad alta de revisión.
+    LONGITUD_LARGA = "longitud_larga"
+
+
 @dataclass(frozen=True, slots=True)
 class DescarteIndicador:
     """Fragmento de una celda multivalor que parecía un código pero se
     descartó, con el motivo (contrato explícito de [HU-04][BE-03]: "todo
-    código descartado queda registrado con su motivo").
+    código descartado queda registrado con su motivo") y una `categoria`
+    estructural para poder priorizar la revisión (ver `CategoriaDescarte`).
     """
 
     valor_crudo: str
     motivo: str
+    categoria: CategoriaDescarte
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +289,21 @@ class CodigoIndicadorProducto:
         propia tarjeta lo marca PENDIENTE y, de confirmarse, dependería de
         HU-02 (el PDT cargado). No se convierte esa duda en requisito.
 
+        CATEGORIZACIÓN DE DESCARTES (2026-09-19, ver docs/DECISIONES.md
+        D14, hallazgo de Juan David): un número suelto dentro de texto
+        libre real ("Meta 4 de 12...", "...el 2024-09-19", "Avance del
+        45%...") también cae en `descartes` con el mismo motivo genérico
+        que un intento de código realmente roto — nunca pretendió ser un
+        código, pero `extraer_todos` no puede saberlo por contexto
+        semántico (fecha/porcentaje/conteo es juicio de negocio que esta
+        función mecánica no debe adivinar). Se resuelve SIN cambiar qué
+        termina en `codigos` vs `descartes` — solo clasificando el
+        descarte por longitud (dato que ya se calcula) en
+        `CategoriaDescarte`, para que quien construya una vista de
+        revisión (p. ej. [HU-04][FE-03]) pueda priorizar
+        `POSIBLE_CERO_PERDIDO`/`LONGITUD_LARGA` (probable código real
+        perdido) sobre `LONGITUD_CORTA` (probable ruido de texto libre).
+
         No se deduplica: si el mismo código aparece dos veces en la celda
         (dos bloques distintos con el mismo indicador, o un bloque de 18
         dígitos que se segmenta en dos iguales), CA-4 no pide colapsarlos
@@ -262,6 +313,7 @@ class CodigoIndicadorProducto:
             return ResultadoExtraccionIndicadores(codigos=[], descartes=[])
         codigos: list[CodigoIndicadorProducto] = []
         descartes: list[DescarteIndicador] = []
+        longitud_cero_perdido = LONGITUD_INDICADOR - TOLERANCIA_CERO_PERDIDO
         for fragmento in _SEPARADORES_MULTIVALOR.split(texto):
             candidato = fragmento.strip()
             if not candidato:
@@ -277,6 +329,12 @@ class CodigoIndicadorProducto:
                 for inicio in range(0, len(candidato), LONGITUD_INDICADOR):
                     codigos.append(cls(candidato[inicio : inicio + LONGITUD_INDICADOR]))
             else:
+                if len(candidato) == longitud_cero_perdido:
+                    categoria = CategoriaDescarte.POSIBLE_CERO_PERDIDO
+                elif len(candidato) < LONGITUD_INDICADOR:
+                    categoria = CategoriaDescarte.LONGITUD_CORTA
+                else:
+                    categoria = CategoriaDescarte.LONGITUD_LARGA
                 descartes.append(
                     DescarteIndicador(
                         valor_crudo=candidato,
@@ -285,6 +343,7 @@ class CodigoIndicadorProducto:
                             f"ni múltiplo de {LONGITUD_INDICADOR} (no se adivina "
                             "dónde cortarlo)."
                         ),
+                        categoria=categoria,
                     )
                 )
         return ResultadoExtraccionIndicadores(codigos=codigos, descartes=descartes)
