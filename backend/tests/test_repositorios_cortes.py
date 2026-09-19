@@ -98,6 +98,19 @@ def test_existe_borrador_activo_ignora_los_registrados(repo) -> None:
     assert repo.existe_borrador_activo() is False
 
 
+def test_existe_corte_duplicado_detecta_misma_vigencia_y_fecha(repo) -> None:
+    # D9: no filtra por estado — un duplicado de un REGISTRADO también cuenta.
+    assert repo.existe_corte_duplicado(2026, date(2026, 6, 30)) is False
+
+    corte = repo.guardar(Corte(vigencia=2026, fecha_corte=date(2026, 6, 30)))
+    corte.estado = EstadoCorte.REGISTRADO
+    repo.confirmar_registro(corte)
+
+    assert repo.existe_corte_duplicado(2026, date(2026, 6, 30)) is True
+    assert repo.existe_corte_duplicado(2026, date(2026, 7, 1)) is False
+    assert repo.existe_corte_duplicado(2025, date(2026, 6, 30)) is False
+
+
 def test_ultimo_registrado_ignora_los_borradores(repo, sesion) -> None:
     # El REGISTRADO se guarda y confirma primero; solo entonces cabe un BORRADOR
     # de la misma vigencia (índice único parcial WHERE estado='BORRADOR').

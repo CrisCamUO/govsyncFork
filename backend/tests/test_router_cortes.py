@@ -43,6 +43,11 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
     def existe_borrador_activo(self) -> bool:
         return any(c.estado == EstadoCorte.BORRADOR for c in self._cortes.values())
 
+    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+        return any(
+            c.vigencia == vigencia and c.fecha_corte == fecha_corte for c in self._cortes.values()
+        )
+
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
         return self._cortes.get(corte_id)
 
