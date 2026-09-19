@@ -175,7 +175,15 @@ async def cargar_archivo(
     )
 
 
-# TODO [HU-01][BE-05] POST /cortes/{id}/registrar — Corte.registrar() y
-#      ServicioCortes.registrar_corte() siguen NotImplementedError.
-# GAP: no existe hoy validación de "vigencia+fecha duplicada" (409) — no
-#      hay consulta de aplicación que la soporte. Tarjeta nueva sugerida.
+# TODO [HU-01][BE-05] POST /cortes/{id}/registrar — el dominio y la
+#      aplicación YA están implementados y probados (`Corte.registrar()`
+#      en domain/entidades.py, `ServicioCortes.registrar_corte()` en
+#      application/casos_uso.py:245, tests en test_casos_uso_cortes.py:258,
+#      277, 285, 299) — falta únicamente exponer el endpoint HTTP aquí.
+# La validación de "vigencia+fecha duplicada" (D9) YA existe: ver
+#      `existe_corte_duplicado` en domain/puertos.py:44 y su implementación
+#      SQL en persistence/repositorios.py:120, ya consumida por
+#      `crear_corte` (casos_uso.py) con 409 mapeado en core/errores.py.
+# TODO D11: PATCH /cortes/{id} para corregir vigencia/fecha de un corte
+#      en BORRADOR — ver docs/DECISIONES.md D11 (aclaración 2026-09-19)
+#      para el alcance exacto antes de implementar.

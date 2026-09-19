@@ -336,6 +336,21 @@ de carrera (dos peticiones casi simultáneas), no solo la validación de
 aplicación. La ratificación original del 2026-09-13 no dejó esto
 explícito — este PR lo cierra.
 
+**Aclaración confirmada (2026-09-19):** antes de diseñar `PATCH
+/cortes/{id}`, quedan resueltas las tres preguntas que la ratificación
+original dejó abiertas:
+
+1. El PATCH de corrección **NO aplica a cortes `REGISTRADO`**, solo a
+   `BORRADOR` — editar vigencia/fecha de un corte ya registrado rompería
+   el histórico; ese caso no pasa por este endpoint.
+2. Es **total**, no parcial: exige `vigencia` y `fecha_corte` juntos, el
+   mismo contrato de entrada que `POST /cortes` — no se admite mandar
+   solo uno de los dos campos.
+3. Es **exclusivamente para vigencia/fecha** — no edita `archivos`. La
+   corrección de un archivo cargado por error sigue su propio mecanismo
+   de reemplazo por tipo (HU-06, `registrar_archivo`), sin relación con
+   este PATCH.
+
 ---
 
 ## D12 · Límite de tamaño de archivo verificado en el cliente
@@ -376,6 +391,7 @@ Verificado contra la CA-4 oficial (`Levantamiento de Requisitos.md`,
 separadores adicionales ni el registro de descartes — solo la tarjeta de
 Trello los exige explícitamente. Es la tarjeta, no la documentación
 derivada, la fuente correcta aquí (jerarquía del proyecto: CA aprobados
+
 > reglas de negocio > documentación).
 
 **Decisión:** se reabre y corrige `[HU-04][BE-03]` en esta misma tarjeta
