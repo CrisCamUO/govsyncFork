@@ -455,3 +455,121 @@ def test_reemplazar_presupuesto_no_hace_commit(sesion, repo) -> None:
     sesion.rollback()
 
     assert sesion.scalars(select(RubroORM)).all() == []
+
+
+def test_reemplazar_proyectos_inserta_proyecto_y_sus_indicadores(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_proyectos(
+        corte_id,
+        [
+            {
+                "bpin": "202500000050132",
+                "nombre_proyecto": "Mejoramiento de vías terciarias del municipio",
+                "indicador_producto_raw": "170202300\n330105300",
+                "codigos_indicador": ["170202300", "330105300"],
+            }
+        ],
+    )
+
+    assert filas == 3  # 1 proyecto + 2 indicadores
+    proyecto = sesion.scalars(select(ProyectoORM).where(ProyectoORM.corte_id == corte_id)).one()
+    assert proyecto.bpin == "202500000050132"
+    codigos = sesion.scalars(
+        select(ProyectoIndicadorORM.cod_indicador_producto).where(
+            ProyectoIndicadorORM.proyecto_id == proyecto.id
+        )
+    ).all()
+    assert set(codigos) == {"170202300", "330105300"}
+
+
+def test_reemplazar_proyectos_deduplica_codigos_repetidos_en_la_misma_celda(sesion, repo) -> None:
+    """`extraer_todos` (el lector) no deduplica a propósito, pero
+    `UniqueConstraint(proyecto_id, cod_indicador_producto)` no admite el
+    duplicado tal cual — la deduplicación es responsabilidad de esta etapa."""
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_proyectos(
+        corte_id,
+        [
+            {
+                "bpin": "202500000050132",
+                "nombre_proyecto": "Proyecto con indicador repetido",
+                "indicador_producto_raw": "170202300\n170202300",
+                "codigos_indicador": ["170202300", "170202300"],
+            }
+        ],
+    )
+
+    assert filas == 2  # 1 proyecto + 1 indicador (deduplicado)
+    proyecto = sesion.scalars(select(ProyectoORM).where(ProyectoORM.corte_id == corte_id)).one()
+    codigos = sesion.scalars(
+        select(ProyectoIndicadorORM.cod_indicador_producto).where(
+            ProyectoIndicadorORM.proyecto_id == proyecto.id
+        )
+    ).all()
+    assert codigos == ["170202300"]
+
+
+def test_reemplazar_proyectos_sin_indicadores_inserta_solo_el_proyecto(sesion, repo) -> None:
+    """CA-2 (tal cual): un proyecto cuyo indicador no separó en ningún
+    código válido (advertencia del lector, no error) igual se persiste."""
+    corte_id = _crear_corte(sesion)
+
+    filas = repo.reemplazar_proyectos(
+        corte_id,
+        [{"bpin": "202500000050132", "nombre_proyecto": "Sin indicador", "codigos_indicador": []}],
+    )
+
+    assert filas == 1
+    assert sesion.scalars(select(ProyectoIndicadorORM)).all() == []
+
+
+def test_reemplazar_proyectos_es_reemplazo_total_y_borra_lo_anterior(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+    repo.reemplazar_proyectos(
+        corte_id, [{"bpin": "202500000050132", "codigos_indicador": ["170202300"]}]
+    )
+
+    filas = repo.reemplazar_proyectos(
+        corte_id, [{"bpin": "202500000050299", "codigos_indicador": ["330105300"]}]
+    )
+
+    assert filas == 2
+    assert [p.bpin for p in sesion.scalars(select(ProyectoORM))] == ["202500000050299"]
+
+
+def test_reemplazar_proyectos_borra_en_cascada_los_indicadores_del_proyecto_anterior(
+    sesion, repo
+) -> None:
+    """ON DELETE CASCADE de proyecto_indicador.proyecto_id (models.py): al
+    reemplazar, ningún indicador debe quedar huérfano."""
+    corte_id = _crear_corte(sesion)
+    proyecto_anterior_id = uuid.uuid4()
+    sesion.add(ProyectoORM(id=proyecto_anterior_id, corte_id=corte_id, bpin="viejo"))
+    sesion.add(
+        ProyectoIndicadorORM(
+            id=uuid.uuid4(), proyecto_id=proyecto_anterior_id, cod_indicador_producto="040110500"
+        )
+    )
+    sesion.flush()
+
+    repo.reemplazar_proyectos(corte_id, [])
+
+    assert (
+        sesion.scalars(
+            select(ProyectoIndicadorORM).where(
+                ProyectoIndicadorORM.proyecto_id == proyecto_anterior_id
+            )
+        ).all()
+        == []
+    )
+
+
+def test_reemplazar_proyectos_no_hace_commit(sesion, repo) -> None:
+    corte_id = _crear_corte(sesion)
+
+    repo.reemplazar_proyectos(corte_id, [{"bpin": "202500000050132", "codigos_indicador": []}])
+    sesion.rollback()
+
+    assert sesion.scalars(select(ProyectoORM)).all() == []

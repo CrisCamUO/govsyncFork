@@ -80,6 +80,7 @@ class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
         self.llamadas_reemplazar_presupuesto: list[
             tuple[uuid.UUID, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]
         ] = []
+        self.llamadas_reemplazar_proyectos: list[tuple[uuid.UUID, list[dict[str, Any]]]] = []
 
     def reemplazar_metas(self, corte_id: uuid.UUID, metas: list[dict[str, Any]]) -> int:
         self.llamadas_reemplazar_metas.append((corte_id, metas))
@@ -90,7 +91,8 @@ class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
         return len(rubros) + len(contratos) + len(registros)
 
     def reemplazar_proyectos(self, corte_id: uuid.UUID, proyectos: list[dict[str, Any]]) -> int:
-        raise NotImplementedError
+        self.llamadas_reemplazar_proyectos.append((corte_id, proyectos))
+        return len(proyectos)
 
     def copiar_datos(self, origen_id: uuid.UUID, destino_id: uuid.UUID, tipo) -> int:
         self.llamadas_copiar_datos.append((origen_id, destino_id, tipo))
@@ -474,17 +476,24 @@ class TestCargarArchivo:
         ]
         assert archivo.filas_reconocidas == 3  # len(rubros)+len(contratos)+len(registros)
 
-    def test_tipo_proyectos_esta_bloqueado_hasta_resolver_hu04_be04(self, servicio):
+    def test_tipo_proyectos_despacha_a_reemplazar_proyectos(self, servicio):
+        """[HU-04][BE-04]: cargar_archivo despacha resultado.filas["proyectos"]
+        a reemplazar_proyectos, mismo patrón que PDT/EJECUCION."""
         corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        proyectos = [{"bpin": "202500000050132", "codigos_indicador": ["170202300"]}]
         lector = _LectorFalso(
-            resultado=ResultadoLectura(tipo=TipoArchivoIngesta.PROYECTOS, filas={"proyectos": []})
+            resultado=ResultadoLectura(
+                tipo=TipoArchivoIngesta.PROYECTOS, filas={"proyectos": proyectos}
+            )
         )
         servicio._lectores = {TipoArchivoFuente.PROYECTOS: lector}
 
-        with pytest.raises(NotImplementedError):
-            servicio.cargar_archivo(
-                corte.id, TipoArchivoFuente.PROYECTOS, _XLSX_VALIDO, "proyectos.xlsx"
-            )
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PROYECTOS, _XLSX_VALIDO, "proyectos.xlsx"
+        )
+
+        assert servicio._datos.llamadas_reemplazar_proyectos == [(corte.id, proyectos)]
+        assert archivo.filas_reconocidas == 1
 
 
 class TestCargarArchivoIntegracionPDT:

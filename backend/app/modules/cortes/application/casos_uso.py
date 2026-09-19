@@ -222,16 +222,12 @@ class ServicioCortes:
         uno genérico. Mismo criterio que `LectorArchivoFuente` (Strategy) en
         `ingesta/domain/contratos.py`; ver docstring de esa clase.
 
-        [HU-04][BE-04] queda señalizada explícitamente como NO implementada:
-        `proyectos.py::leer` sigue en NotImplementedError ([HU-04][BE-01]).
-        Fabricar aquí una implementación que dependa de datos que el lector
-        no produce violaría "nunca conviertas un supuesto en un requisito".
-
-        [HU-03][BE-06] SÍ está implementada: `lectores/ejecucion.py` produce
-        las claves "rubros"/"contratos"/"registros" y
-        `RepositorioDatosCorteSQL.reemplazar_presupuesto` las persiste (ver
-        su propio docstring para el orden de escritura y la resolución de
-        FKs).
+        Las tres fuentes SÍ están implementadas: `lectores/pdt.py`,
+        `lectores/ejecucion.py` y `lectores/proyectos.py` producen sus claves
+        respectivas de `ResultadoLectura.filas`, y `RepositorioDatosCorteSQL`
+        las persiste con `reemplazar_metas`/`reemplazar_presupuesto`/
+        `reemplazar_proyectos` (ver el docstring de cada uno para el orden de
+        escritura y la resolución de FKs).
         """
         if tipo is TipoArchivoFuente.PDT:
             return self._datos.reemplazar_metas(corte_id, resultado.filas["metas"])
@@ -243,11 +239,7 @@ class ServicioCortes:
                 resultado.filas["registros"],
             )
         if tipo is TipoArchivoFuente.PROYECTOS:
-            raise NotImplementedError(
-                "[HU-04][BE-04]: bloqueado — lectores/proyectos.py::leer "
-                "sigue NotImplementedError([HU-04][BE-01]); no hay resultado "
-                "que cargar todavía."
-            )
+            return self._datos.reemplazar_proyectos(corte_id, resultado.filas["proyectos"])
         raise ValueError(f"Tipo de archivo sin manejador de carga: {tipo!r}")
 
     def registrar_corte(self, corte_id) -> Corte:

@@ -377,7 +377,50 @@ class RepositorioDatosCorteSQL(RepositorioDatosCorte):
         return len(rubros) + len(contratos) + registros_insertados
 
     def reemplazar_proyectos(self, corte_id: uuid.UUID, proyectos: list[dict[str, Any]]) -> int:
-        raise NotImplementedError("[HU-04][BE-05] Carga de la plantilla de proyectos BPIN")
+        """[HU-04][BE-04]: reemplazo total de Proyecto + ProyectoIndicador.
+
+        Más simple que `reemplazar_presupuesto`: `ProyectoIndicadorORM` SÍ es
+        una relationship con cascade (`ProyectoORM.indicadores`, igual que
+        `_copiar_proyectos` de abajo) — no hace falta un mapa de ids manual,
+        SQLAlchemy resuelve `proyecto_id` de las hijas al hacer flush.
+
+        Deduplicación de códigos de indicador: `CodigoIndicadorProducto.
+        extraer_todos` (el lector, `proyectos.py`) NO deduplica a propósito
+        (ver su docstring: un código repetido en la celda es información
+        real). Pero `ProyectoIndicadorORM` tiene
+        `UniqueConstraint(proyecto_id, cod_indicador_producto)` — insertar el
+        duplicado tal cual rompería el INSERT con un error de integridad
+        crudo. Se deduplica AQUÍ, en la etapa Load (con `dict.fromkeys` para
+        conservar el orden de aparición), no en el lector: es la misma
+        separación de responsabilidades que ya aplica
+        `reemplazar_presupuesto` (extracción vs. persistencia).
+
+        SUPUESTO (MENOR — mismo criterio ya registrado en
+        `reemplazar_presupuesto`): el retorno es
+        `len(proyectos) + indicadores_insertados` (total de filas
+        insertadas, después de deduplicar) — no hay CA que defina qué debe
+        significar `ArchivoFuente.filas_reconocidas` para esta carga.
+        """
+        self._s.execute(delete(ProyectoORM).where(ProyectoORM.corte_id == corte_id))
+
+        indicadores_insertados = 0
+        for proyecto in proyectos:
+            nuevo = ProyectoORM(
+                id=uuid.uuid4(),
+                corte_id=corte_id,
+                bpin=proyecto.get("bpin"),
+                nombre_proyecto=proyecto.get("nombre_proyecto"),
+                indicador_producto_raw=proyecto.get("indicador_producto_raw"),
+            )
+            for codigo in dict.fromkeys(proyecto.get("codigos_indicador", ())):
+                nuevo.indicadores.append(
+                    ProyectoIndicadorORM(id=uuid.uuid4(), cod_indicador_producto=codigo)
+                )
+                indicadores_insertados += 1
+            self._s.add(nuevo)
+
+        self._s.flush()
+        return len(proyectos) + indicadores_insertados
 
     def copiar_datos(
         self, origen_id: uuid.UUID, destino_id: uuid.UUID, tipo: TipoArchivoFuente
