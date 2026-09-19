@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.shared.codigos import CodigoBpin, CodigoIndicadorProducto
+from app.shared.codigos import CodigoBpin, CodigoIndicadorProducto, DescarteIndicador
 from app.shared.errors import ReglaDeNegocioViolada
 
 
@@ -86,44 +86,128 @@ class TestCodigoIndicadorProducto:
             "Sistema de Gestión implementado\n"
             "$230.000.000,00"
         )
-        assert CodigoIndicadorProducto.extraer_todos(celda) == [
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == [
             CodigoIndicadorProducto("459903100"),
             CodigoIndicadorProducto("459902300"),
+        ]
+        # El "00" del monto con coma decimal se registra (limitación
+        # conocida y documentada en el docstring de extraer_todos, D13):
+        # no fabrica un código falso, solo entra a revisión manual.
+        assert resultado.descartes == [
+            DescarteIndicador(valor_crudo="00", motivo=resultado.descartes[0].motivo)
         ]
 
     def test_extraer_todos_ignora_nombre_y_monto_de_un_solo_bloque(self) -> None:
         celda = "040110500\nUn producto cualquiera\n$100.000"
-        assert CodigoIndicadorProducto.extraer_todos(celda) == [
-            CodigoIndicadorProducto("040110500")
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == [CodigoIndicadorProducto("040110500")]
+        assert resultado.descartes == []
+
+    def test_extraer_todos_registra_ocho_digitos_como_descarte_sin_recuperar_cero(
+        self,
+    ) -> None:
+        # A diferencia de desde_crudo: aquí un candidato de 8 dígitos casi
+        # siempre es un monto sin '$' u otro fragmento, no un código
+        # truncado. No se rellena (fabricaría un código que no existe en la
+        # celda real) PERO, a diferencia del comportamiento anterior a
+        # [HU-04][BE-03] (D13), ya no se pierde en silencio: se registra
+        # como descarte con su motivo.
+        celda = "40110500\nProducto\n$100"
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == []
+        assert resultado.descartes == [
+            DescarteIndicador(
+                valor_crudo="40110500",
+                motivo="8 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+            )
         ]
 
-    def test_extraer_todos_no_recupera_cero_perdido_en_ocho_digitos(self) -> None:
-        # A diferencia de desde_crudo: aquí un candidato de 8 dígitos casi
-        # siempre es un monto sin '$' u otro fragmento, no un código truncado.
-        # Rellenarlo fabricaría un código que no existe en la celda real.
-        celda = "40110500\nProducto\n$100"
-        assert CodigoIndicadorProducto.extraer_todos(celda) == []
-
-    def test_extraer_todos_ignora_un_bpin_de_quince_digitos(self) -> None:
+    def test_extraer_todos_registra_un_bpin_de_quince_digitos_como_descarte(self) -> None:
         celda = "459903100\nProducto\n202400000002842"
-        assert CodigoIndicadorProducto.extraer_todos(celda) == [
-            CodigoIndicadorProducto("459903100")
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == [CodigoIndicadorProducto("459903100")]
+        assert resultado.descartes == [
+            DescarteIndicador(
+                valor_crudo="202400000002842",
+                motivo="15 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+            )
         ]
 
     def test_extraer_todos_conserva_duplicados(self) -> None:
         celda = "459903100\nA\n$1\n\n459903100\nB\n$2"
         resultado = CodigoIndicadorProducto.extraer_todos(celda)
-        assert resultado == [
+        assert resultado.codigos == [
             CodigoIndicadorProducto("459903100"),
             CodigoIndicadorProducto("459903100"),
         ]
-        assert len(resultado) == 2
+        assert len(resultado.codigos) == 2
+        assert resultado.descartes == []
 
     @pytest.mark.parametrize("vacio", [None, "", "   ", 459903100, float("nan")])
-    def test_extraer_todos_con_entrada_no_normalizable_devuelve_lista_vacia(
-        self, vacio: object
+    def test_extraer_todos_con_entrada_no_normalizable_devuelve_vacio(self, vacio: object) -> None:
+        resultado = CodigoIndicadorProducto.extraer_todos(vacio)
+        assert resultado.codigos == []
+        assert resultado.descartes == []
+
+    # --- Casos borde exigidos por la tarjeta [HU-04][BE-03] (reabierta,
+    # ver docs/DECISIONES.md D13) --------------------------------------
+
+    @pytest.mark.parametrize(
+        "celda",
+        [
+            "459903100,459902300",
+            "459903100;459902300",
+            "459903100-459902300",
+            "459903100 459902300",
+            "459903100\n459902300",
+            "459903100,  459902300",
+            "459903100 ; 459902300",
+        ],
+    )
+    def test_extraer_todos_acepta_separadores_distintos(self, celda: str) -> None:
+        """Coma, punto y coma, guion, espacio y salto de línea son todos
+        separadores válidos entre códigos, en cualquier combinación."""
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == [
+            CodigoIndicadorProducto("459903100"),
+            CodigoIndicadorProducto("459902300"),
+        ]
+        assert resultado.descartes == []
+
+    def test_extraer_todos_segmenta_codigos_pegados_si_el_total_es_multiplo_de_nueve(
+        self,
     ) -> None:
-        assert CodigoIndicadorProducto.extraer_todos(vacio) == []
+        celda = "459903100459902300"  # 18 dígitos = 2 x 9, sin separador
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == [
+            CodigoIndicadorProducto("459903100"),
+            CodigoIndicadorProducto("459902300"),
+        ]
+        assert resultado.descartes == []
+
+    def test_extraer_todos_no_segmenta_codigos_pegados_si_el_total_no_es_multiplo_de_nueve(
+        self,
+    ) -> None:
+        # 17 dígitos: no es múltiplo de 9 -> dato inválido, se reporta, no
+        # se adivina dónde cortar.
+        celda = "45990310045990230"
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == []
+        assert resultado.descartes == [
+            DescarteIndicador(
+                valor_crudo="45990310045990230",
+                motivo="17 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+            )
+        ]
+
+    def test_extraer_todos_celda_vacia_o_con_texto_libre_no_produce_codigos_ni_descartes(
+        self,
+    ) -> None:
+        celda = "Este proyecto todavía no tiene indicador de producto asignado"
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == []
+        assert resultado.descartes == []
 
 
 class TestCodigoBpin:

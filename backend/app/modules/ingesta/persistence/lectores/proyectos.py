@@ -85,12 +85,14 @@ porque CA-2 exige conservarlo TAL CUAL — uno de los 38 reales no cumple el
 formato de 15 dígitos, y normalizarlo/rechazarlo violaría "tal cual, incluso
 si su estructura interna no está completamente estandarizada".
 
-Indicadores: `CodigoIndicadorProducto.extraer_todos` (ya implementada y
-probada, [HU-04][BE-03]) hace la separación línea por línea; `leer()` solo
-la invoca y guarda los valores como texto plano en
+Indicadores: `CodigoIndicadorProducto.extraer_todos` (ampliada 2026-09-19,
+ver docs/DECISIONES.md D13) separa por coma, punto y coma, guion, espacio y
+salto de línea, y devuelve `ResultadoExtraccionIndicadores(codigos,
+descartes)`; `leer()` invoca, guarda `codigos` como texto plano en
 `proyectos["codigos_indicador"]` — sin deduplicar (mismo criterio que
 `extraer_todos`: un código repetido en la celda es información real, no un
-error). La deduplicación por `UniqueConstraint(proyecto_id,
+error) — y vuelca `descartes` a `advertencias` (ver más abajo).
+La deduplicación por `UniqueConstraint(proyecto_id,
 cod_indicador_producto)` de `ProyectoIndicadorORM` es responsabilidad de la
 etapa Load (`reemplazar_proyectos`, todavía sin implementar — [HU-04][BE-04]),
 no de este lector: mismo principio de una responsabilidad por función que ya
@@ -201,12 +203,23 @@ class LectorProyectos(LectorArchivoFuente):
                 )
                 continue
 
-            codigos = CodigoIndicadorProducto.extraer_todos(indicador_raw)
+            resultado_indicadores = CodigoIndicadorProducto.extraer_todos(indicador_raw)
+            codigos = resultado_indicadores.codigos
             if indicador_raw is not None and not codigos:
                 advertencias.append(
                     f"«{hoja}», fila {posicion} (BPIN {bpin!r}): ningún "
                     "indicador reconocible en la celda; se conserva el "
                     "proyecto sin indicadores."
+                )
+            for descarte in resultado_indicadores.descartes:
+                # [HU-04][BE-03]: todo código descartado se registra con su
+                # motivo — se reutiliza el mecanismo de advertencias que ya
+                # usa este lector (docstring del módulo, "FUERA DE ALCANCE
+                # DE [HU-04][BE-01]"), no se construye una estructura nueva.
+                advertencias.append(
+                    f"«{hoja}», fila {posicion} (BPIN {bpin!r}): fragmento "
+                    f"de indicador descartado ({descarte.motivo}): "
+                    f"{descarte.valor_crudo!r}."
                 )
 
             proyectos.append(

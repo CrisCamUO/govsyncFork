@@ -354,3 +354,61 @@ cliente es más conservador, no lo reemplaza ni lo duplica.
 
 **Registrado:** 2026-09-15.
 **Ratificado:** 2026-09-15, acordado con Cristhian.
+
+## D13 · `[HU-04][BE-03]` reabierta y corregida: separadores y descartes registrados
+
+**Hallazgo (2026-09-19, Juan David + verificación cruzada):** el texto
+literal de la tarjeta Trello `[HU-04][BE-03]` exige, en "casos borde
+obligatorios en los tests", dos cosas que la implementación original de
+`CodigoIndicadorProducto.extraer_todos` (probada con 6 tests, solo
+`split("\n")`) no cumplía:
+
+1. Reconocer coma, punto y coma, guion y espacio como separadores además
+   de salto de línea, incluyendo códigos pegados sin separador
+   (segmentar de a 9 dígitos SOLO si el total es múltiplo de 9).
+2. "Todo código descartado queda registrado con su motivo" — la versión
+   original simplemente omitía el candidato inválido de la lista, sin
+   dejar rastro.
+
+Verificado contra la CA-4 oficial (`Levantamiento de Requisitos.md`,
+`HU04-CA04`) y contra `Sprint1_Decisiones_de_Diseno.md`/
+`GovSync_Guia_Tecnica.md`: ninguno de esos documentos menciona los
+separadores adicionales ni el registro de descartes — solo la tarjeta de
+Trello los exige explícitamente. Es la tarjeta, no la documentación
+derivada, la fuente correcta aquí (jerarquía del proyecto: CA aprobados
+> reglas de negocio > documentación).
+
+**Decisión:** se reabre y corrige `[HU-04][BE-03]` en esta misma tarjeta
+(no se crea TRANS-02, para no duplicar trabajo ya comprometido).
+
+**Cambio de contrato (deliberado, no oculto):** `extraer_todos` cambia su
+tipo de retorno de `list[CodigoIndicadorProducto]` a
+`ResultadoExtraccionIndicadores(codigos, descartes)`. Es un cambio de API
+de dominio, justificado porque el descarte con motivo es parte del
+contrato exigido por la propia tarjeta, no un detalle de presentación.
+Único call site afectado: `LectorProyectos.leer()`, que ahora vuelca
+`descartes` al mecanismo de `advertencias` ya existente (no se construye
+infraestructura nueva).
+
+**Limitación conocida, aceptada y documentada (no bloqueante):** un monto
+con coma decimal en formato colombiano (`$230.000.000,00`) produce un
+candidato residual de 2 dígitos (`00`) que SÍ se registra como descarte
+(cumple el texto literal de la tarjeta: cualquier candidato numérico de
+longitud distinta de 9 se reporta). No fabrica un código falso ni afecta
+`codigos`, solo agrega ruido a la lista de revisión manual. Pendiente de
+que el equipo confirme si esto debe filtrarse en una iteración futura.
+
+**Fuera de alcance, explícitamente (PENDIENTE S-3 de la propia tarjeta):**
+verificar que cada código exista en el PDT ya cargado. La tarjeta lo
+marca PENDIENTE y, de confirmarse, dependería de HU-02 — no se convierte
+en requisito sin esa confirmación.
+
+**Evidencia:** `test_codigos.py` (16 pruebas, antes 6) + actualización de
+`test_lectores_proyectos.py::test_indicador_no_reconocible_...` (fixture
+ajustada: contenía un "9" suelto en la prosa que ahora se registra como
+descarte válido de 1 dígito — coincidencia del texto de prueba, no un
+bug). 258 passed en local (2026-09-19).
+
+**Estado:** Corregida.
+**Quién y cuándo:** Juan Esteban, 2026-09-19.
+

@@ -133,7 +133,7 @@ class TestLeer:
         libro.remove(libro.active)
         hoja = libro.create_sheet(HOJA_PROYECTOS)
         hoja.append(["Código BPIN", "Indicador de producto"])
-        hoja.append([BPIN_1, "texto sin ningún código de 9 dígitos"])
+        hoja.append([BPIN_1, "texto sin ningún código reconocible"])
         buffer_libro = _a_bytes(libro)
 
         resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
