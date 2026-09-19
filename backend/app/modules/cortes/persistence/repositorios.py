@@ -117,13 +117,21 @@ class RepositorioCortesSQL(RepositorioCortes):
         consulta = select(CorteORM.id).where(CorteORM.estado == EstadoCorte.BORRADOR).limit(1)
         return self._s.scalars(consulta).first() is not None
 
-    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
-        """D9: respaldo de aplicación del índice único `ux_corte_vigencia_fecha`."""
+    def existe_corte_duplicado(
+        self, vigencia: int, fecha_corte: date, *, excluir_id: uuid.UUID | None = None
+    ) -> bool:
+        """D9: respaldo de aplicación del índice único `ux_corte_vigencia_fecha`.
+
+        `excluir_id` (D11): usado por `corregir_corte` para no autorrechazar
+        un corte contra sí mismo.
+        """
         consulta = (
             select(CorteORM.id)
             .where(CorteORM.vigencia == vigencia, CorteORM.fecha_corte == fecha_corte)
             .limit(1)
         )
+        if excluir_id is not None:
+            consulta = consulta.where(CorteORM.id != excluir_id)
         return self._s.scalars(consulta).first() is not None
 
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
@@ -187,6 +195,18 @@ class RepositorioCortesSQL(RepositorioCortes):
                 detalles={"motivo": "corte_no_encontrado", "corte_id": str(corte.id)},
             )
         orm.estado = corte.estado
+        self._s.flush()
+
+    def confirmar_correccion(self, corte: Corte) -> None:
+        """D11: persiste vigencia/fecha corregidas (la validación ya la hizo el dominio)."""
+        orm = self._s.get(CorteORM, corte.id)
+        if orm is None:
+            raise RecursoNoEncontrado(
+                f"No existe el corte {corte.id} que se intenta corregir.",
+                detalles={"motivo": "corte_no_encontrado", "corte_id": str(corte.id)},
+            )
+        orm.vigencia = corte.vigencia
+        orm.fecha_corte = corte.fecha_corte
         self._s.flush()
 
 

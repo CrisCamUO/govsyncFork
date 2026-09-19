@@ -262,6 +262,42 @@ class ServicioCortes:
             raise
         return corte
 
+    def corregir_corte(self, corte_id, vigencia: int, fecha_corte: date) -> Corte:
+        """D11 (docs/DECISIONES.md): corrige vigencia/fecha de un corte en
+        BORRADOR, sin pasar por rechazar-y-crear-uno-nuevo.
+
+        Mismo patrón que `registrar_corte`: buscar, validar duplicado (D9)
+        excluyendo al propio corte, delegar la regla al dominio (estado
+        BORRADOR y fecha no futura, `Corte.corregir()`), persistir y
+        confirmar la transacción. El chequeo de duplicado va ANTES de
+        `corte.corregir()` a propósito: `corte` es el mismo objeto que
+        guarda el repositorio (por referencia, no por copia) — mutarlo
+        antes de saber si la operación completa va a tener éxito dejaría
+        vigencia/fecha corregidas visibles en memoria aunque el 409 de
+        duplicado aborte la operación sin persistir nada.
+        """
+        corte = self._cortes.obtener(corte_id)
+        if corte is None:
+            raise RecursoNoEncontrado(f"No existe un corte con id {corte_id}.")
+        if self._cortes.existe_corte_duplicado(vigencia, fecha_corte, excluir_id=corte_id):
+            raise OperacionNoPermitida(
+                f"Ya existe un corte con vigencia {vigencia} y fecha de corte "
+                f"{fecha_corte.isoformat()}.",
+                detalles={
+                    "motivo": "vigencia_fecha_duplicada",
+                    "vigencia": vigencia,
+                    "fecha_corte": fecha_corte.isoformat(),
+                },
+            )
+        corte.corregir(vigencia, fecha_corte, self._hoy)
+        try:
+            self._cortes.confirmar_correccion(corte)
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return corte
+
     def listar_cortes(self) -> list[Corte]:
         return self._cortes.listar()
 

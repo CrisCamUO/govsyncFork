@@ -120,3 +120,42 @@ class TestRegistrar:
         corte.registrar()
 
         assert corte.estado == EstadoCorte.REGISTRADO
+
+
+class TestCorregir:
+    """D11 (docs/DECISIONES.md, aclaración 2026-09-19): corrección de
+    vigencia/fecha de un corte en BORRADOR."""
+
+    def test_corrige_vigencia_y_fecha_de_un_corte_en_borrador(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        hoy = date(2026, 9, 10)
+
+        corte.corregir(vigencia=2025, fecha_corte=date(2026, 9, 9), hoy=hoy)
+
+        assert corte.vigencia == 2025
+        assert corte.fecha_corte == date(2026, 9, 9)
+        assert corte.estado == EstadoCorte.BORRADOR
+
+    def test_rechaza_corregir_un_corte_registrado(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8), estado=EstadoCorte.REGISTRADO)
+        hoy = date(2026, 9, 10)
+
+        with pytest.raises(OperacionNoPermitida) as exc_info:
+            corte.corregir(vigencia=2025, fecha_corte=date(2026, 9, 9), hoy=hoy)
+
+        assert exc_info.value.detalles["motivo"] == "corte_no_es_borrador"
+        assert exc_info.value.detalles["estado_actual"] == EstadoCorte.REGISTRADO.value
+        # No cambia nada si se rechaza:
+        assert corte.vigencia == 2026
+        assert corte.fecha_corte == date(2026, 9, 8)
+
+    def test_rechaza_corregir_con_fecha_futura(self):
+        corte = Corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        hoy = date(2026, 9, 10)
+
+        with pytest.raises(ReglaDeNegocioViolada) as exc_info:
+            corte.corregir(vigencia=2026, fecha_corte=date(2026, 9, 11), hoy=hoy)
+
+        assert exc_info.value.detalles["fecha_corte"] == date(2026, 9, 11).isoformat()
+        # No cambia nada si se rechaza:
+        assert corte.fecha_corte == date(2026, 9, 8)

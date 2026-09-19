@@ -55,9 +55,12 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
     def existe_borrador_activo(self) -> bool:
         return any(c.estado == EstadoCorte.BORRADOR for c in self._cortes.values())
 
-    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+    def existe_corte_duplicado(
+        self, vigencia: int, fecha_corte: date, *, excluir_id: uuid.UUID | None = None
+    ) -> bool:
         return any(
-            c.vigencia == vigencia and c.fecha_corte == fecha_corte for c in self._cortes.values()
+            c.vigencia == vigencia and c.fecha_corte == fecha_corte and c.id != excluir_id
+            for c in self._cortes.values()
         )
 
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
@@ -77,6 +80,10 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
 
     def confirmar_registro(self, corte: Corte) -> None:
         self._cortes[corte.id].estado = EstadoCorte.REGISTRADO
+
+    def confirmar_correccion(self, corte: Corte) -> None:
+        self._cortes[corte.id].vigencia = corte.vigencia
+        self._cortes[corte.id].fecha_corte = corte.fecha_corte
 
 
 class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
@@ -218,6 +225,87 @@ def test_get_cortes_id_inexistente_devuelve_404(cliente):
 
     assert respuesta.status_code == 404
     assert respuesta.json()["codigo"] == "recurso_no_encontrado"
+
+
+# --- PATCH /cortes/{id} — D11 (docs/DECISIONES.md, aclaración 2026-09-19) --
+
+
+def test_patch_cortes_id_corrige_vigencia_y_fecha_200(cliente):
+    creado = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"}
+    ).json()
+
+    respuesta = cliente.patch(
+        f"/api/v1/cortes/{creado['id']}",
+        json={"vigencia": 2025, "fecha_corte": "2026-09-01"},
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["vigencia"] == 2025
+    assert cuerpo["fecha_corte"] == "2026-09-01"
+    assert cuerpo["estado"] == "BORRADOR"
+
+
+def test_patch_cortes_id_inexistente_devuelve_404(cliente):
+    respuesta = cliente.patch(
+        f"/api/v1/cortes/{uuid.uuid4()}",
+        json={"vigencia": 2025, "fecha_corte": "2026-09-01"},
+    )
+
+    assert respuesta.status_code == 404
+    assert respuesta.json()["codigo"] == "recurso_no_encontrado"
+
+
+def test_patch_cortes_id_sobre_corte_registrado_devuelve_409(cliente):
+    creado = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"}
+    ).json()
+    corte = cliente.repo_cortes.obtener(uuid.UUID(creado["id"]))
+    corte.estado = EstadoCorte.REGISTRADO
+    cliente.repo_cortes.confirmar_registro(corte)
+
+    respuesta = cliente.patch(
+        f"/api/v1/cortes/{creado['id']}",
+        json={"vigencia": 2025, "fecha_corte": "2026-09-01"},
+    )
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detalles"]["motivo"] == "corte_no_es_borrador"
+
+
+def test_patch_cortes_id_duplicado_contra_otro_corte_devuelve_409(cliente):
+    otro = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2025, "fecha_corte": "2025-12-01"}
+    ).json()
+    corte_otro = cliente.repo_cortes.obtener(uuid.UUID(otro["id"]))
+    corte_otro.estado = EstadoCorte.REGISTRADO
+    cliente.repo_cortes.confirmar_registro(corte_otro)
+    propio = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"}
+    ).json()
+
+    respuesta = cliente.patch(
+        f"/api/v1/cortes/{propio['id']}",
+        json={"vigencia": 2025, "fecha_corte": "2025-12-01"},
+    )
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detalles"]["motivo"] == "vigencia_fecha_duplicada"
+
+
+def test_patch_cortes_id_fecha_futura_devuelve_422(cliente):
+    creado = cliente.post(
+        "/api/v1/cortes", json={"vigencia": 2026, "fecha_corte": "2026-09-08"}
+    ).json()
+
+    respuesta = cliente.patch(
+        f"/api/v1/cortes/{creado['id']}",
+        json={"vigencia": 2026, "fecha_corte": "2026-09-09"},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["codigo"] == "regla_de_negocio_violada"
 
 
 # --- POST /cortes/{id}/archivos/{tipo} — [HU-02][FE-01] --------------------

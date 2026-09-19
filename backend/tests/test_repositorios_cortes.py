@@ -111,6 +111,21 @@ def test_existe_corte_duplicado_detecta_misma_vigencia_y_fecha(repo) -> None:
     assert repo.existe_corte_duplicado(2025, date(2026, 6, 30)) is False
 
 
+def test_existe_corte_duplicado_excluir_id_no_cuenta_al_propio_corte(repo) -> None:
+    # D11: corregir_corte consulta esto contra sí mismo — sin excluir_id se
+    # autorrechazaría con un 409 falso al mantener su propia vigencia/fecha.
+    corte = repo.guardar(Corte(vigencia=2026, fecha_corte=date(2026, 6, 30)))
+    corte.estado = EstadoCorte.REGISTRADO
+    repo.confirmar_registro(corte)
+
+    assert repo.existe_corte_duplicado(2026, date(2026, 6, 30)) is True
+    assert repo.existe_corte_duplicado(2026, date(2026, 6, 30), excluir_id=corte.id) is False
+
+    otro = repo.guardar(Corte(vigencia=2025, fecha_corte=date(2025, 12, 1)))
+    # excluir_id de un corte DISTINTO no oculta el duplicado real.
+    assert repo.existe_corte_duplicado(2026, date(2026, 6, 30), excluir_id=otro.id) is True
+
+
 def test_ultimo_registrado_ignora_los_borradores(repo, sesion) -> None:
     # El REGISTRADO se guarda y confirma primero; solo entonces cabe un BORRADOR
     # de la misma vigencia (índice único parcial WHERE estado='BORRADOR').
@@ -176,6 +191,28 @@ def test_confirmar_registro_de_corte_inexistente_lanza_recurso_no_encontrado(rep
 
     with pytest.raises(RecursoNoEncontrado) as exc:
         repo.confirmar_registro(corte)
+
+    assert exc.value.detalles["motivo"] == "corte_no_encontrado"
+
+
+def test_confirmar_correccion_persiste_vigencia_y_fecha(repo) -> None:
+    corte = repo.guardar(Corte(vigencia=2026, fecha_corte=date(2026, 6, 30)))
+    corte.vigencia = 2025
+    corte.fecha_corte = date(2026, 7, 1)
+
+    repo.confirmar_correccion(corte)
+
+    recuperado = repo.obtener(corte.id)
+    assert recuperado.vigencia == 2025
+    assert recuperado.fecha_corte == date(2026, 7, 1)
+    assert recuperado.estado == EstadoCorte.BORRADOR
+
+
+def test_confirmar_correccion_de_corte_inexistente_lanza_recurso_no_encontrado(repo) -> None:
+    corte = Corte(vigencia=2026, fecha_corte=date(2026, 6, 30))
+
+    with pytest.raises(RecursoNoEncontrado) as exc:
+        repo.confirmar_correccion(corte)
 
     assert exc.value.detalles["motivo"] == "corte_no_encontrado"
 

@@ -42,9 +42,12 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
     def existe_borrador_activo(self) -> bool:
         return any(c.estado == EstadoCorte.BORRADOR for c in self._cortes.values())
 
-    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+    def existe_corte_duplicado(
+        self, vigencia: int, fecha_corte: date, *, excluir_id: uuid.UUID | None = None
+    ) -> bool:
         return any(
-            c.vigencia == vigencia and c.fecha_corte == fecha_corte for c in self._cortes.values()
+            c.vigencia == vigencia and c.fecha_corte == fecha_corte and c.id != excluir_id
+            for c in self._cortes.values()
         )
 
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
@@ -64,6 +67,10 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
 
     def confirmar_registro(self, corte: Corte) -> None:
         self._cortes[corte.id].estado = EstadoCorte.REGISTRADO
+
+    def confirmar_correccion(self, corte: Corte) -> None:
+        self._cortes[corte.id].vigencia = corte.vigencia
+        self._cortes[corte.id].fecha_corte = corte.fecha_corte
 
 
 class RepositorioDatosCorteEnMemoria(RepositorioDatosCorte):
@@ -297,6 +304,71 @@ class TestRegistrarCorte:
 
         with pytest.raises(RuntimeError):
             servicio.registrar_corte(corte.id)
+
+        assert servicio.llamadas["rollback"] == 1
+
+
+class TestCorregirCorte:
+    """D11 (docs/DECISIONES.md, aclaración 2026-09-19): PATCH /cortes/{id}."""
+
+    def test_corte_inexistente_lanza_recurso_no_encontrado(self, servicio):
+        with pytest.raises(RecursoNoEncontrado):
+            servicio.corregir_corte(uuid.uuid4(), vigencia=2025, fecha_corte=date(2026, 9, 9))
+
+    def test_rechaza_corregir_un_corte_registrado(self, servicio):
+        corte = _crear_corte_registrado_con_archivos(
+            servicio, vigencia=2026, fecha_corte=date(2026, 9, 8)
+        )
+
+        with pytest.raises(OperacionNoPermitida) as exc:
+            servicio.corregir_corte(corte.id, vigencia=2025, fecha_corte=date(2026, 9, 9))
+
+        assert exc.value.detalles["motivo"] == "corte_no_es_borrador"
+        assert servicio._cortes.obtener(corte.id).vigencia == 2026
+
+    def test_rechaza_si_vigencia_y_fecha_coinciden_con_otro_corte(self, servicio):
+        # D9: el otro corte debe estar REGISTRADO (D11 no permite dos BORRADOR).
+        otro = servicio.crear_corte(vigencia=2025, fecha_corte=date(2025, 12, 1))
+        otro.estado = EstadoCorte.REGISTRADO
+        servicio._cortes.confirmar_registro(otro)
+        propio = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        with pytest.raises(OperacionNoPermitida) as exc:
+            servicio.corregir_corte(propio.id, vigencia=2025, fecha_corte=date(2025, 12, 1))
+
+        assert exc.value.detalles["motivo"] == "vigencia_fecha_duplicada"
+        assert servicio._cortes.obtener(propio.id).vigencia == 2026
+
+    def test_corregir_con_la_misma_vigencia_y_fecha_que_ya_tenia_no_se_autorechaza(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        corregido = servicio.corregir_corte(corte.id, vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        assert corregido.vigencia == 2026
+        assert corregido.fecha_corte == date(2026, 9, 8)
+
+    def test_corrige_y_confirma_la_transaccion(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+        commits_previos = servicio.llamadas["commit"]
+
+        corregido = servicio.corregir_corte(corte.id, vigencia=2025, fecha_corte=date(2026, 9, 1))
+
+        assert corregido.vigencia == 2025
+        assert corregido.fecha_corte == date(2026, 9, 1)
+        assert servicio._cortes.obtener(corte.id).vigencia == 2025
+        assert servicio._cortes.obtener(corte.id).fecha_corte == date(2026, 9, 1)
+        assert servicio.llamadas["commit"] == commits_previos + 1
+
+    def test_si_falla_la_confirmacion_revierte_la_transaccion(self, servicio):
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        def _commit_que_falla():
+            raise RuntimeError("fallo simulado de la base de datos")
+
+        servicio._commit = _commit_que_falla
+
+        with pytest.raises(RuntimeError):
+            servicio.corregir_corte(corte.id, vigencia=2025, fecha_corte=date(2026, 9, 1))
 
         assert servicio.llamadas["rollback"] == 1
 
