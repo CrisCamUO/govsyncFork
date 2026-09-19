@@ -22,6 +22,7 @@ from app.shared.errors import (
     OperacionNoPermitida,
     RecursoNoEncontrado,
     ReglaDeNegocioViolada,
+    TipoArchivoNoDisponible,
 )
 
 _log = logging.getLogger("govsync")
@@ -32,6 +33,7 @@ _MAPA_HTTP: dict[type[GovSyncError], int] = {
     RecursoNoEncontrado: status.HTTP_404_NOT_FOUND,
     ReglaDeNegocioViolada: status.HTTP_422_UNPROCESSABLE_CONTENT,
     ArchivoInvalido: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    TipoArchivoNoDisponible: status.HTTP_501_NOT_IMPLEMENTED,
 }
 
 

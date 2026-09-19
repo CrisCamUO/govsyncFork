@@ -23,8 +23,14 @@ Cubre POST /cortes, GET /cortes y GET /cortes/{id}. NO cubre:
   `ServicioCortes.registrar_corte()` existen con firma definida pero lanzan
   NotImplementedError — es [HU-01][BE-05] (Juan Esteban). Se agrega en un
   commit posterior cuando esa tarjeta cierre.
-- POST /cortes/{id}/archivos/{tipo}: depende de `cargar_archivo()`, también
-  NotImplementedError — es [HU-02..04][BE-04]/[BE-06].
+- POST /cortes/{id}/archivos/{tipo}: implementado para `tipo=PDT` (HU-02/
+  CA-1, completo de punta a punta). Para EJECUCION/PROYECTOS responde 501
+  explícito (`TipoArchivoNoDisponible`) — bloqueadas por
+  `[HU-03][BE-06]`/`[HU-04][BE-01]`, ver el guard en el propio endpoint
+  para el archivo:línea exacto de cada condición de desbloqueo. El cuerpo
+  de éxito (`ArchivoFuenteRespuestaParcial`) es provisional: no cumple
+  todavía el contrato completo de `docs/ESPECIFICACIONES_TECNICAS.md`
+  (falta `advertencias` y los campos específicos por tipo).
 - 409 por "vigencia+fecha duplicada": GAP. No existe hoy, en casos_uso.py
   ni en el puerto RepositorioCortes, ninguna consulta que la soporte —
   es lógica de aplicación, no de esta capa. Se propone como tarjeta nueva.
@@ -42,11 +48,12 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, UploadFile, status
 from pydantic import BaseModel
 
 from app.core.dependencias import ServicioCortesDep
-from app.modules.cortes.domain.entidades import Corte
+from app.modules.cortes.domain.entidades import Corte, TipoArchivoFuente
+from app.shared.errors import TipoArchivoNoDisponible
 
 router = APIRouter(prefix="/cortes", tags=["Cortes de seguimiento"])
 
@@ -71,6 +78,23 @@ class CorteRespuesta(BaseModel):
     fecha_corte: date
     estado: str
     archivos: list[ArchivoFuenteRespuesta]
+
+
+class ArchivoFuenteRespuestaParcial(BaseModel):
+    """Forma PROVISIONAL de la respuesta de POST /cortes/{id}/archivos/{tipo}.
+
+    NO es el contrato completo de docs/ESPECIFICACIONES_TECNICAS.md (que
+    exige `advertencias` y, para EJECUCION/PROYECTOS, campos distintos por
+    tipo — hasta 3, incluyendo un array `descartes`). `ArchivoFuente`, lo
+    que devuelve `ServicioCortes.cargar_archivo()`, no produce esos campos
+    hoy: `filas_reconocidas` es un solo entero y `advertencias` se
+    descarta dentro del caso de uso, ni siquiera para PDT. Definir la forma
+    final es trabajo aparte (toca `casos_uso.py`, de Juan Esteban).
+    """
+
+    tipo: str
+    nombre_archivo: str
+    filas_reconocidas: int
 
 
 def _a_dto(corte: Corte) -> CorteRespuesta:
@@ -121,8 +145,49 @@ def obtener_corte(corte_id: UUID, servicio: ServicioCortesDep) -> CorteRespuesta
     return _a_dto(servicio.obtener_corte(corte_id))
 
 
+@router.post(
+    "/{corte_id}/archivos/{tipo}",
+    response_model=ArchivoFuenteRespuestaParcial,
+    status_code=status.HTTP_201_CREATED,
+)
+async def cargar_archivo(
+    corte_id: UUID,
+    tipo: TipoArchivoFuente,
+    servicio: ServicioCortesDep,
+    archivo: UploadFile,
+) -> ArchivoFuenteRespuestaParcial:
+    """HU-02/CA-1 (PDT, completo). HU-03/CA-1, HU-04/CA-1: bloqueadas, ver guard.
+
+    `tipo` tipado con `TipoArchivoFuente` -> FastAPI valida automáticamente
+    cualquier valor fuera del enum con 422, sin código adicional aquí.
+
+    GUARD TEMPORAL: solo PDT llega a `servicio.cargar_archivo()`.
+    EJECUCION/PROYECTOS responden 501 (`TipoArchivoNoDisponible`) porque
+    `ServicioCortes.cargar_archivo()` los rechaza con `NotImplementedError`
+    sin mapear — ver `casos_uso.py::_cargar_resultado`. Retirar este guard
+    cuando AMBAS condiciones dejen de cumplirse (revisar antes de borrar):
+      - `RepositorioDatosCorteSQL.reemplazar_presupuesto`
+        (`cortes/persistence/repositorios.py:241-248`) — [HU-03][BE-06]
+      - `LectorProyectos.leer`
+        (`ingesta/persistence/lectores/proyectos.py:112-113`) — [HU-04][BE-01]
+    Seguimiento también en docs/TRAZABILIDAD.md (HU-03/CA-1, HU-04/CA-1,
+    estado Bloqueado).
+    """
+    if tipo is not TipoArchivoFuente.PDT:
+        raise TipoArchivoNoDisponible(
+            f"La carga de archivos de tipo {tipo.value} aún no está disponible.",
+            detalles={"tipo": tipo.value},
+        )
+    contenido = await archivo.read()
+    resultado = servicio.cargar_archivo(corte_id, tipo, contenido, archivo.filename)
+    return ArchivoFuenteRespuestaParcial(
+        tipo=resultado.tipo.value,
+        nombre_archivo=resultado.nombre_archivo,
+        filas_reconocidas=resultado.filas_reconocidas,
+    )
+
+
 # TODO [HU-01][BE-05] POST /cortes/{id}/registrar — Corte.registrar() y
 #      ServicioCortes.registrar_corte() siguen NotImplementedError.
-# TODO [HU-02..04][BE-04/BE-06] POST /cortes/{id}/archivos/{tipo}
 # GAP: no existe hoy validación de "vigencia+fecha duplicada" (409) — no
 #      hay consulta de aplicación que la soporte. Tarjeta nueva sugerida.
