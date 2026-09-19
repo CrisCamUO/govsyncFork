@@ -54,6 +54,7 @@ openpyxl en este archivo. Lo verifica tests/test_arquitectura.py.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.shared.errors import ReglaDeNegocioViolada
@@ -112,6 +113,32 @@ def _normalizar_a_longitud(texto: str, longitud: int, *, tolerancia: int = 0) ->
     return None
 
 
+#: Separadores admitidos entre códigos de una celda multivalor
+#: ([HU-04][BE-03]): coma, punto y coma, guion, espacio y salto de línea,
+#: en cualquier combinación y en cualquier orden dentro del mismo archivo.
+_SEPARADORES_MULTIVALOR = re.compile(r"[,;\-\s]+")
+
+
+@dataclass(frozen=True, slots=True)
+class DescarteIndicador:
+    """Fragmento de una celda multivalor que parecía un código pero se
+    descartó, con el motivo (contrato explícito de [HU-04][BE-03]: "todo
+    código descartado queda registrado con su motivo").
+    """
+
+    valor_crudo: str
+    motivo: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResultadoExtraccionIndicadores:
+    """Resultado de `CodigoIndicadorProducto.extraer_todos`: los códigos
+    válidos y, por separado, lo descartado con su motivo."""
+
+    codigos: list[CodigoIndicadorProducto]
+    descartes: list[DescarteIndicador]
+
+
 @dataclass(frozen=True, slots=True)
 class CodigoIndicadorProducto:
     """Código de 9 dígitos que identifica un indicador de producto."""
@@ -139,7 +166,7 @@ class CodigoIndicadorProducto:
         return cls(normalizado)
 
     @classmethod
-    def extraer_todos(cls, texto: object) -> list[CodigoIndicadorProducto]:
+    def extraer_todos(cls, texto: object) -> ResultadoExtraccionIndicadores:
         """Separa los indicadores multivalor de una sola celda (HU-04/CA-4).
 
         La celda real del archivo de Proyectos contiene bloques como:
@@ -152,37 +179,115 @@ class CodigoIndicadorProducto:
             Sistema de Gestión implementado
             $230.000.000,00
 
-        DISEÑO: se evalúa LÍNEA POR LÍNEA (`texto.split("\\n")`), nunca con una
-        expresión regular sobre el bloque completo. Un `re.findall(r"\\d{9}")`
-        ingenuo, aplicado al texto entero, puede "encontrar" 9 dígitos dentro de
-        un monto sin separadores (`$ 1.218.264.452` -> `1218264452`, 10 dígitos
-        contiguos) o dentro de un BPIN de 15 si alguno apareciera en la celda —
-        exactamente el fragmento que la tarjeta pide evitar. Al exigir que la
-        LÍNEA COMPLETA, ya recortada de espacios, sean nueve dígitos ASCII y
-        nada más, un monto o un BPIN de 15 nunca puede calzar por longitud.
+        REABIERTA 2026-09-19 ([HU-04][BE-03], ver docs/DECISIONES.md D13):
+        la tarjeta exige, con texto literal, dos cosas que la versión
+        anterior de este método no cumplía:
 
-        SUPUESTO (no confirmado con la clienta, no crítico para el modelo de
-        datos): no se aplica la tolerancia de "un cero perdido" de
-        `desde_crudo` aquí. Esa tolerancia existe para cuando pandas leyó la
-        celda ENTERA como número y perdió el cero al convertir a texto; aquí
-        cada línea ya es texto tal cual lo escribió el municipio, así que un
-        candidato de 8 dígitos no es "un 9 con el cero comido", es casi
-        seguro un monto o fragmento sin el símbolo `$` — normalizarlo
-        fabricaría un código que no existe. Si la clienta confirma que SÍ debe
-        recuperarse en este caso, es un cambio acotado a esta función.
+        1. "Separadores distintos en el mismo archivo: coma, punto y coma,
+           salto de línea, guion, espacio." Antes solo se partía por
+           `"\\n"`.
+        2. "Todo código descartado queda registrado con su motivo." Antes,
+           un candidato inválido simplemente no se agregaba a la lista —
+           sin dejar rastro. Por eso el retorno cambió de
+           `list[CodigoIndicadorProducto]` a `ResultadoExtraccionIndicadores`
+           (BREAKING CHANGE de contrato, deliberado: el descarte con motivo
+           es parte del contrato de dominio de esta tarjeta, no un detalle
+           de presentación de FE-03).
+
+        DISEÑO — por qué un único split con varios delimitadores sigue
+        siendo seguro: la salvaguarda original (nunca usar una regex de
+        "9 dígitos en cualquier parte" sobre el bloque completo) se
+        conserva. `_SEPARADORES_MULTIVALOR` solo reconoce coma, punto y
+        coma, guion, espacio y salto de línea como separadores — un monto
+        como `$ 1.218.264.452` o un nombre de producto nunca quedan
+        compuestos SOLO de dígitos ASCII tras partir por esos caracteres
+        (conservan `$`, `.` o letras), así que jamás se confunden con un
+        candidato de código. Un monto sin símbolos y sin separadores
+        (`1218264452`, 10 dígitos) si se evalúa como candidato — ver punto
+        siguiente.
+
+        CASOS BORDE (tarjeta, sección "casos borde obligatorios"):
+
+        - Candidato de exactamente 9 dígitos ASCII -> código válido.
+        - Candidato de N dígitos ASCII con N múltiplo de 9 (códigos
+          pegados sin separador) -> se segmenta en bloques de 9 en el
+          orden en que aparecen. N que NO es múltiplo de 9 (y distinto de
+          9) -> "es dato inválido: se reporta, no se adivina" — se agrega a
+          `descartes` con el motivo, NUNCA se trunca ni se rellena para
+          forzarlo a 9.
+        - Candidato que no es una cadena de solo dígitos ASCII (nombre de
+          producto, monto con `$`/`.`/`,`, texto libre) -> se ignora en
+          silencio: nunca pretendió ser un código, así que no es "un
+          código descartado" en el sentido de la tarjeta. Registrarlo
+          igual inundaría la lista de descartes con cada palabra de cada
+          nombre de producto de cada celda.
+        - Celda vacía, solo espacios, o sin ningún dígito -> códigos y
+          descartes vacíos, sin error.
+
+        SUPUESTO (no confirmado con la clienta, no crítico para el modelo
+        de datos): no se aplica la tolerancia de "un cero perdido" de
+        `desde_crudo` aquí. Esa tolerancia existe para cuando pandas leyó
+        la celda ENTERA como número y perdió el cero al convertir a texto;
+        aquí cada candidato ya es texto tal cual lo escribió el municipio,
+        así que uno de 8 dígitos no es "un 9 con el cero comido" — ahora
+        SÍ se registra en `descartes` (antes se perdía en silencio), pero
+        sigue sin normalizarse a 9 dígitos por la misma razón que antes:
+        fabricaría un código que no existe en la celda real.
+
+        LIMITACIÓN CONOCIDA (ruido, no corrupción de datos): un monto con
+        coma decimal en formato colombiano (`$230.000.000,00`) queda
+        partido por la coma en `$230.000.000` (ignorado, tiene símbolos) y
+        `00` (candidato de 2 dígitos -> SE REGISTRA como descarte, aunque
+        nunca fue un código). La tarjeta no da forma de distinguir una
+        coma "separadora de códigos" de una coma "decimal de un monto" sin
+        arriesgar dejar pasar un separador real; se prefirió cumplir el
+        texto literal de la tarjeta (registrar todo candidato numérico de
+        longitud distinta de 9) y aceptar el ruido en la lista de
+        descartes de montos, ya que NO fabrica códigos falsos ni afecta
+        `codigos` — solo agrega entradas de revisión manual. Pendiente de
+        confirmar con el equipo si esto debe filtrarse (ver
+        docs/DECISIONES.md D13).
+
+        PENDIENTE S-3 (tarjeta, sin implementar aquí a propósito): "¿debe
+        verificarse que cada código exista en el PDT ya cargado?" — la
+        propia tarjeta lo marca PENDIENTE y, de confirmarse, dependería de
+        HU-02 (el PDT cargado). No se convierte esa duda en requisito.
 
         No se deduplica: si el mismo código aparece dos veces en la celda
-        (dos bloques distintos con el mismo indicador), CA-4 no pide
-        colapsarlos y hacerlo perdería información real de conteo.
+        (dos bloques distintos con el mismo indicador, o un bloque de 18
+        dígitos que se segmenta en dos iguales), CA-4 no pide colapsarlos
+        y hacerlo perdería información real de conteo.
         """
         if not isinstance(texto, str):
-            return []
+            return ResultadoExtraccionIndicadores(codigos=[], descartes=[])
         codigos: list[CodigoIndicadorProducto] = []
-        for linea in texto.split("\n"):
-            candidato = linea.strip()
-            if _es_cadena_de_digitos(candidato, LONGITUD_INDICADOR):
+        descartes: list[DescarteIndicador] = []
+        for fragmento in _SEPARADORES_MULTIVALOR.split(texto):
+            candidato = fragmento.strip()
+            if not candidato:
+                continue
+            if not (candidato.isascii() and candidato.isdigit()):
+                # Nunca pretendió ser un código (nombre, monto, símbolo):
+                # no es "un código descartado" en el sentido de la tarjeta.
+                continue
+            if len(candidato) == LONGITUD_INDICADOR:
                 codigos.append(cls(candidato))
-        return codigos
+            elif len(candidato) % LONGITUD_INDICADOR == 0:
+                # Códigos pegados sin separador, total múltiplo de 9.
+                for inicio in range(0, len(candidato), LONGITUD_INDICADOR):
+                    codigos.append(cls(candidato[inicio : inicio + LONGITUD_INDICADOR]))
+            else:
+                descartes.append(
+                    DescarteIndicador(
+                        valor_crudo=candidato,
+                        motivo=(
+                            f"{len(candidato)} dígitos: ni {LONGITUD_INDICADOR} "
+                            f"ni múltiplo de {LONGITUD_INDICADOR} (no se adivina "
+                            "dónde cortarlo)."
+                        ),
+                    )
+                )
+        return ResultadoExtraccionIndicadores(codigos=codigos, descartes=descartes)
 
 
 @dataclass(frozen=True, slots=True)
