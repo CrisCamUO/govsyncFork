@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
+from datetime import date
 from typing import Any
 
 from app.modules.cortes.domain.entidades import ArchivoFuente, Corte, TipoArchivoFuente
@@ -38,6 +39,20 @@ class RepositorioCortes(ABC):
         como respaldo contra la condición de carrera (dos POST /cortes casi
         simultáneos) — este método no lo reemplaza, resuelve el caso común
         con un mensaje de negocio.
+        """
+
+    @abstractmethod
+    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+        """D9: no puede haber dos cortes con la misma vigencia y la misma
+        fecha_corte exacta (docs/DECISIONES.md, D9).
+
+        `crear_corte` (casos_uso.py) lo consulta ANTES de `guardar()` para
+        devolver un 409 legible (OperacionNoPermitida) en vez de dejar que
+        la violación del índice único `ux_corte_vigencia_fecha` llegue como
+        un `IntegrityError` crudo (500). El índice de BD sigue siendo
+        necesario como respaldo contra la condición de carrera — este
+        método no lo reemplaza, resuelve el caso común con un mensaje de
+        negocio, igual que `existe_borrador_activo` para D11.
         """
 
     @abstractmethod

@@ -42,6 +42,11 @@ class RepositorioCortesEnMemoria(RepositorioCortes):
     def existe_borrador_activo(self) -> bool:
         return any(c.estado == EstadoCorte.BORRADOR for c in self._cortes.values())
 
+    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+        return any(
+            c.vigencia == vigencia and c.fecha_corte == fecha_corte for c in self._cortes.values()
+        )
+
     def obtener(self, corte_id: uuid.UUID) -> Corte | None:
         return self._cortes.get(corte_id)
 
@@ -134,6 +139,21 @@ def test_crear_corte_rechaza_si_ya_existe_borrador_activo_de_otra_vigencia(servi
     assert len(servicio.listar_cortes()) == 1
     assert servicio.llamadas["commit"] == 1
     assert servicio.llamadas["rollback"] == 0
+
+
+def test_crear_corte_rechaza_vigencia_y_fecha_duplicada(servicio):
+    # D9: la misma vigencia+fecha_corte de un corte YA REGISTRADO también se
+    # rechaza (regresión: antes esto llegaba como IntegrityError crudo/500,
+    # solo el índice único de BD lo detenía, sin excepción de dominio).
+    anterior = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 6, 30))
+    anterior.estado = EstadoCorte.REGISTRADO
+    servicio._cortes.confirmar_registro(anterior)
+
+    with pytest.raises(OperacionNoPermitida) as exc:
+        servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 6, 30))
+
+    assert exc.value.detalles["motivo"] == "vigencia_fecha_duplicada"
+    assert len(servicio.listar_cortes()) == 1
 
 
 def test_listar_cortes_devuelve_lo_creado(servicio):
