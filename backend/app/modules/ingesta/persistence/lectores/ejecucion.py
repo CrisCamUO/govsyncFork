@@ -10,6 +10,47 @@ CUBRE: HU-03 / CA-2, CA-4, CA-5, CA-7 (numeración interna del código,
        Obsidian las numera CA01-CA06 — mismo contenido, orden distinto)
 
 =============================================================================
+EXTENSIÓN [HU-03][BE-06]: extracción para persistencia (Rubro/Contrato/Registro)
+=============================================================================
+Las claves "ejecucion"/"contratacion" de ResultadoLectura.filas (arriba) solo
+traen el código de indicador — es lo único que necesitaba HU-03/CA-6 (matriz)
+cuando se escribieron. `reemplazar_presupuesto` (casos_uso.py/repositorios.py)
+necesita las filas COMPLETAS de Rubro/Contrato/RegistroPresupuestal, así que
+se agregan tres claves nuevas ("rubros", "contratos", "registros") sin tocar
+las existentes — aditivo, no rompe ningún consumidor actual.
+
+DECISIÓN TÉCNICA (delegada al equipo, sin objeción — 2026-09-18):
+`ContratoORM.llave_sustituta` (comentario CT2: "NumeroContrato no es llave
+única") queda SIEMPRE NULL. Se agrupa por NumeroContrato tal cual, verificado
+contra los 999 registros reales de Santa Rosa: en los 34 casos donde se repite
+NumeroContrato, NIT y Objeto SIEMPRE coinciden (solo varía "Valor Contrato",
+consistente con múltiples CDP contra el mismo contrato) — no se encontró un
+solo caso de dos contratos distintos compartiendo número. LIMITACIÓN CONOCIDA:
+si otro municipio sí tiene NumeroContrato genuinamente duplicado entre dos
+contratos, esta extracción los fusionaría incorrectamente. Si eso ocurre, hay
+que calcular una llave real (fuera de alcance de esta entrega, sin criterio
+definido por nadie del equipo a la fecha).
+
+`valor_contrato`/`valor_pagado` del contrato agrupado: se toma el MÁXIMO
+visto entre sus filas (aproximación al total; los valores parciales de CDP
+son siempre <= el total). `RegistroPresupuestal.valor_pagos` queda NULL: la
+columna "Pagos" del archivo real es a nivel de contrato, no hay desglose por
+CDP/registro individual en la fuente.
+
+`Rubro.codigo_rubro_completo` se llena con el mismo valor que
+`codigo_rubro_nivel`: verificado que "CodigoRubro" de CONTRATACION coincide
+100% con "CodigoRubroNivel" de ejecución (docstring arriba), así que no hay
+un segundo dato distinto que extraer para ese propósito.
+
+CodigoRubroNivel tiene EXACTAMENTE 1 duplicado en los datos reales (ver
+arriba) pese al UniqueConstraint(corte_id, codigo_rubro_nivel) de RubroORM:
+se descarta la fila repetida (se conserva la primera) con advertencia, en vez
+de dejar que el INSERT falle con un error de integridad crudo.
+
+La fila "TOTALES" (CodigoRubroCcpet=999999999, CodigoRubroNivel vacío) se
+descarta: es un renglón de agregación del reporte, no un rubro real.
+
+=============================================================================
 ANATOMÍA DEL ARCHIVO REAL (ver docs/DATOS.md)
 =============================================================================
 UN archivo, DOS pestañas, procesadas como conjuntos independientes (CA-2). NO
@@ -89,6 +130,64 @@ OBLIGATORIAS_CONTRATACION: dict[str, tuple[str, ...]] = {
 OPCIONALES_CONTRATACION: dict[str, tuple[str, ...]] = {
     "numero_contrato": ("NumeroContrato",),
     "descripcion_contrato": ("Objeto",),
+}
+
+# --- [HU-03][BE-06]: columnas para Rubro (persistencia) ---------------------
+
+#: CodigoRubroNivel siempre está en el archivo real (es la llave utilizable,
+#: ver docstring del módulo): ausente => estructura del archivo rota, se
+#: rechaza total. UltimoNivel también, porque es NOT NULL en la BD.
+OBLIGATORIAS_RUBRO: dict[str, tuple[str, ...]] = {
+    "codigo_rubro_nivel": ("CodigoRubroNivel",),
+    "ultimo_nivel": ("UltimoNivel",),
+}
+
+# El resto son opcionales: si falta alguna, la fila la trae en None en vez de
+# rechazar el archivo completo — a diferencia de las dos de arriba, ninguna
+# de estas es indispensable para que la fila tenga sentido como Rubro.
+OPCIONALES_RUBRO: dict[str, tuple[str, ...]] = {
+    "codigo_rubro_ccpet": ("CodigoRubroCcpet",),
+    "cod_indicador_producto": _ALIAS_COD_INDICADOR_PRODUCTO,
+    "codigo_tipo_gasto": ("CodigoTipoGasto",),
+    "nombre_financiacion": ("NombreFuenteFinanciacionCcpet",),
+    "codigo_sector_ccpet": ("CodigoSectorCcpet",),
+    "codigo_producto_ccpet": ("CodigoProductoCcpet",),
+    "apropiacion_definitiva": ("ApropiacionDefinitiva",),
+    "disponibilidad_acumulada": ("DisponibilidadAcumulada",),
+    "compromiso_acumulado": ("Compromiso Acumulado",),
+    # OrdenPagoAcumulado -> obligacion_acumulada (ver DINERO/obligacion en
+    # models.py: "base del % de avance financiero").
+    "obligacion_acumulada": ("OrdenPagoAcumulado",),
+    "pago_acumulado": ("PagoAcumulado",),
+}
+
+# --- [HU-03][BE-06]: columnas para Contrato/RegistroPresupuestal ------------
+
+#: NumeroContrato ancla la fila de CONTRATACION para la extracción de
+#: persistencia (distinto del ancla de OBLIGATORIAS_CONTRATACION arriba, que
+#: es cod_indicador_producto — esa extracción es la histórica para CA-6, esta
+#: es la nueva para reemplazar_presupuesto).
+OBLIGATORIAS_CONTRATO: dict[str, tuple[str, ...]] = {
+    "numero_contrato": ("NumeroContrato",),
+}
+
+OPCIONALES_CONTRATO: dict[str, tuple[str, ...]] = {
+    "objeto": ("Objeto",),
+    "modalidad_seleccion": ("Modalidad seleccion",),
+    "tipo_gasto": ("Tipo Gasto",),
+    "nit_contratista": ("Nit Contratista",),
+    "nombre_contratista": ("Nombre Contratista",),
+    "valor_contrato": ("Valor Contrato",),
+    "valor_pagado": ("Pagos",),
+    "bpin": ("Codigo Bpin", "CodigoBpin"),
+    "cod_indicador_producto": _ALIAS_COD_INDICADOR_PRODUCTO,
+    "numero_cdp": ("Numero CDP",),
+    "fecha_cdp": ("Fecha CDP",),
+    "codigo_rubro_crudo": ("CodigoRubro",),
+    "valor_cdp": ("Valor CDP",),
+    "numero_registro": ("Numero Registro",),
+    "fecha_registro": ("Fecha Registro",),
+    "valor_registro_ptal": ("Valor Registro Ptal",),
 }
 
 
@@ -178,6 +277,235 @@ def _leer_pestana(
     return filas, advertencias
 
 
+def _texto_opcional(fila, mapeo: dict[str, str], clave: str) -> str | None:
+    return _comun.texto(fila[mapeo[clave]]) if clave in mapeo else None
+
+
+def _monto_opcional(fila, mapeo: dict[str, str], clave: str):
+    return _comun.numero(fila[mapeo[clave]]) if clave in mapeo else None
+
+
+def _fecha_opcional(fila, mapeo: dict[str, str], clave: str):
+    return _comun.fecha(fila[mapeo[clave]]) if clave in mapeo else None
+
+
+def _es_ultimo_nivel(crudo: object) -> bool | None:
+    """Interpreta UltimoNivel (True/False). None si no es reconocible.
+
+    Por el `dtype=str` de `leer_hoja`, un booleano de Excel llega como el
+    texto 'True'/'False' (str() de un bool de Python) — mismo patrón que
+    `_es_principal` en pdt.py.
+    """
+    normalizado = _comun.normalizar_encabezado(crudo)
+    if normalizado in {"true", "verdadero", "si", "sí"}:
+        return True
+    if normalizado in {"false", "falso", "no"}:
+        return False
+    return None
+
+
+def _leer_rubros(
+    contenido: bytes, nombre_archivo: str, hoja: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """[HU-03][BE-06]: extrae la pestaña de ejecución completa para Rubro.
+
+    A diferencia de `_leer_pestana` (que solo saca `cod_indicador_producto`
+    para la matriz de HU-07), esta función NO descarta una fila por no tener
+    un indicador válido: la mayoría de rubros reales no lo traen (ver
+    docstring del módulo, "CodigoBpin poblado en 3 de 485") y siguen siendo
+    rubros presupuestales válidos que hay que persistir.
+
+    Sí descarta (con advertencia, nunca rechazo total — son problemas de
+    fila, no de estructura): la fila TOTALES (codigo_rubro_nivel vacío), una
+    fila sin UltimoNivel reconocible (es NOT NULL en la BD, ver models.py) y
+    un codigo_rubro_nivel repetido (hay exactamente 1 en los datos reales,
+    pese al UniqueConstraint de RubroORM — se conserva la primera aparición).
+    """
+    columnas = {**OBLIGATORIAS_RUBRO, **OPCIONALES_RUBRO}
+    ancla_encabezado = OBLIGATORIAS_RUBRO["codigo_rubro_nivel"]
+    try:
+        fila_encabezado = _comun.localizar_fila_encabezado(contenido, hoja, ancla_encabezado)
+        df = _comun.leer_hoja(contenido, hoja, fila_encabezado)
+        mapeo = _comun.mapear_columnas(df, columnas)
+        _comun.exigir_columnas(mapeo, OBLIGATORIAS_RUBRO, nombre_archivo, hoja)
+    except ArchivoInvalido:
+        # A diferencia de HU-02/CA-3 (PDT), ninguna CA de HU-03 exige rechazar
+        # TODO el archivo presupuestal si falta esta columna estructural — la
+        # extracción histórica de "ejecucion"/"contratacion" (CA-6, arriba) no
+        # depende de ella. Se degrada con advertencia: no hay rubros que
+        # persistir, pero el resto del archivo (y su matriz de CA-6) sigue
+        # siendo válido.
+        return [], [
+            f"«{hoja}»: no se encontró la columna «{ancla_encabezado[0]}»; "
+            "no se pudieron extraer rubros para persistencia (HU-03/BE-06)."
+        ]
+
+    rubros: list[dict[str, Any]] = []
+    advertencias: list[str] = []
+    vistos: set[str] = set()
+    for posicion, (_, fila) in enumerate(df.iterrows(), start=1):
+        codigo_rubro_nivel = _comun.texto(fila[mapeo["codigo_rubro_nivel"]])
+        if codigo_rubro_nivel is None:
+            # La fila TOTALES (codigo_rubro_ccpet=999999999) no trae este
+            # dato: es un renglón de agregación del reporte, no un rubro.
+            continue
+
+        if codigo_rubro_nivel in vistos:
+            advertencias.append(
+                f"«{hoja}», fila {posicion}: codigo_rubro_nivel repetido "
+                f"({codigo_rubro_nivel!r}); se descarta (se conserva la primera aparición)."
+            )
+            continue
+
+        ultimo_nivel = _es_ultimo_nivel(fila[mapeo["ultimo_nivel"]])
+        if ultimo_nivel is None:
+            advertencias.append(
+                f"«{hoja}», fila {posicion} (rubro {codigo_rubro_nivel}): "
+                f"UltimoNivel no reconocible ({fila[mapeo['ultimo_nivel']]!r}); se descarta."
+            )
+            continue
+
+        vistos.add(codigo_rubro_nivel)
+        cod_indicador = None
+        if "cod_indicador_producto" in mapeo:
+            codigo = CodigoIndicadorProducto.desde_crudo(fila[mapeo["cod_indicador_producto"]])
+            cod_indicador = codigo.valor if codigo is not None else None
+
+        rubros.append(
+            {
+                "codigo_rubro_nivel": codigo_rubro_nivel,
+                # Ver DECISIÓN TÉCNICA del docstring del módulo: mismo valor
+                # que codigo_rubro_nivel, no hay un segundo dato que extraer.
+                "codigo_rubro_completo": codigo_rubro_nivel,
+                "ultimo_nivel": ultimo_nivel,
+                "codigo_rubro_ccpet": _texto_opcional(fila, mapeo, "codigo_rubro_ccpet"),
+                "cod_indicador_producto": cod_indicador,
+                "codigo_tipo_gasto": _texto_opcional(fila, mapeo, "codigo_tipo_gasto"),
+                "nombre_financiacion": _texto_opcional(fila, mapeo, "nombre_financiacion"),
+                "codigo_sector_ccpet": _texto_opcional(fila, mapeo, "codigo_sector_ccpet"),
+                "codigo_producto_ccpet": _texto_opcional(fila, mapeo, "codigo_producto_ccpet"),
+                "apropiacion_definitiva": _monto_opcional(fila, mapeo, "apropiacion_definitiva"),
+                "disponibilidad_acumulada": _monto_opcional(
+                    fila, mapeo, "disponibilidad_acumulada"
+                ),
+                "compromiso_acumulado": _monto_opcional(fila, mapeo, "compromiso_acumulado"),
+                "obligacion_acumulada": _monto_opcional(fila, mapeo, "obligacion_acumulada"),
+                "pago_acumulado": _monto_opcional(fila, mapeo, "pago_acumulado"),
+            }
+        )
+
+    return rubros, advertencias
+
+
+def _leer_contratos_y_registros(
+    contenido: bytes, nombre_archivo: str, hoja: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """[HU-03][BE-06]: extrae CONTRATACION completa para Contrato+Registro.
+
+    Modela DOS entidades (ver docstring del módulo, "45 filas repiten
+    (NumeroContrato, Numero Registro) con rubros distintos"): un `Contrato`
+    por NumeroContrato distinto (deduplicado — ver DECISIÓN TÉCNICA arriba
+    sobre `llave_sustituta`) y un `RegistroPresupuestal` por CADA fila cruda
+    (una fila = un CDP/registro contra ese contrato).
+    """
+    columnas = {**OBLIGATORIAS_CONTRATO, **OPCIONALES_CONTRATO}
+    ancla_encabezado = OBLIGATORIAS_CONTRATO["numero_contrato"]
+    try:
+        fila_encabezado = _comun.localizar_fila_encabezado(contenido, hoja, ancla_encabezado)
+        df = _comun.leer_hoja(contenido, hoja, fila_encabezado)
+        mapeo = _comun.mapear_columnas(df, columnas)
+        _comun.exigir_columnas(mapeo, OBLIGATORIAS_CONTRATO, nombre_archivo, hoja)
+    except ArchivoInvalido:
+        # Mismo criterio que _leer_rubros: degrada con advertencia, no
+        # rechaza el archivo completo por una columna que ninguna CA de
+        # HU-03 exige como obligatoria a nivel de archivo.
+        return (
+            [],
+            [],
+            [
+                f"«{hoja}»: no se encontró la columna «{ancla_encabezado[0]}»; "
+                "no se pudieron extraer contratos/registros para persistencia (HU-03/BE-06)."
+            ],
+        )
+
+    advertencias: list[str] = []
+    grupos_contrato: dict[str, list[dict[str, Any]]] = {}
+    registros: list[dict[str, Any]] = []
+
+    for posicion, (_, fila) in enumerate(df.iterrows(), start=1):
+        numero_contrato = _comun.texto(fila[mapeo["numero_contrato"]])
+        if numero_contrato is None:
+            advertencias.append(f"«{hoja}», fila {posicion}: NumeroContrato vacío; se descarta.")
+            continue
+
+        cod_indicador = None
+        if "cod_indicador_producto" in mapeo:
+            codigo = CodigoIndicadorProducto.desde_crudo(fila[mapeo["cod_indicador_producto"]])
+            cod_indicador = codigo.valor if codigo is not None else None
+
+        grupos_contrato.setdefault(numero_contrato, []).append(
+            {
+                "objeto": _texto_opcional(fila, mapeo, "objeto"),
+                "modalidad_seleccion": _texto_opcional(fila, mapeo, "modalidad_seleccion"),
+                "tipo_gasto": _texto_opcional(fila, mapeo, "tipo_gasto"),
+                "nit_contratista": _texto_opcional(fila, mapeo, "nit_contratista"),
+                "nombre_contratista": _texto_opcional(fila, mapeo, "nombre_contratista"),
+                "valor_contrato": _monto_opcional(fila, mapeo, "valor_contrato"),
+                "valor_pagado": _monto_opcional(fila, mapeo, "valor_pagado"),
+                "bpin": _texto_opcional(fila, mapeo, "bpin"),
+                "cod_indicador_producto": cod_indicador,
+            }
+        )
+
+        registros.append(
+            {
+                "numero_contrato": numero_contrato,
+                "codigo_rubro_crudo": _texto_opcional(fila, mapeo, "codigo_rubro_crudo"),
+                "numero_cdp": _texto_opcional(fila, mapeo, "numero_cdp"),
+                "fecha_cdp": _fecha_opcional(fila, mapeo, "fecha_cdp"),
+                "valor_cdp": _monto_opcional(fila, mapeo, "valor_cdp"),
+                "numero_registro": _texto_opcional(fila, mapeo, "numero_registro"),
+                "fecha_registro": _fecha_opcional(fila, mapeo, "fecha_registro"),
+                "valor_registro_ptal": _monto_opcional(fila, mapeo, "valor_registro_ptal"),
+            }
+        )
+
+    contratos: list[dict[str, Any]] = []
+    for numero_contrato, filas_del_contrato in grupos_contrato.items():
+        valores_contrato = [
+            f["valor_contrato"] for f in filas_del_contrato if f["valor_contrato"] is not None
+        ]
+        valores_pagado = [
+            f["valor_pagado"] for f in filas_del_contrato if f["valor_pagado"] is not None
+        ]
+        primera = filas_del_contrato[0]
+        cod_indicador = next(
+            (
+                f["cod_indicador_producto"]
+                for f in filas_del_contrato
+                if f["cod_indicador_producto"]
+            ),
+            None,
+        )
+        bpin = next((f["bpin"] for f in filas_del_contrato if f["bpin"]), None)
+        contratos.append(
+            {
+                "numero_contrato": numero_contrato,
+                "objeto": primera["objeto"],
+                "modalidad_seleccion": primera["modalidad_seleccion"],
+                "tipo_gasto": primera["tipo_gasto"],
+                "nit_contratista": primera["nit_contratista"],
+                "nombre_contratista": primera["nombre_contratista"],
+                "valor_contrato": max(valores_contrato) if valores_contrato else None,
+                "valor_pagado": max(valores_pagado) if valores_pagado else None,
+                "bpin": bpin,
+                "cod_indicador_producto": cod_indicador,
+            }
+        )
+
+    return contratos, registros, advertencias
+
+
 class LectorEjecucion(LectorArchivoFuente):
     tipo = TipoArchivo.EJECUCION
 
@@ -217,12 +545,37 @@ class LectorEjecucion(LectorArchivoFuente):
             OPCIONALES_CONTRATACION,
         )
 
+        # [HU-03][BE-06]: extracción completa para persistencia, en paralelo
+        # a la extracción histórica de arriba (ver DECISIÓN TÉCNICA del
+        # docstring del módulo). Ambas leen la MISMA hoja de nuevo en vez de
+        # fusionar las dos pasadas: mantiene cada extracción con una sola
+        # responsabilidad (la de CA-6 vs. la de persistencia) en vez de un
+        # único bucle sobreacoplado a dos consumidores distintos.
+        rubros, advertencias_rubros = _leer_rubros(contenido, nombre_archivo, hoja_ejecucion)
+        contratos, registros, advertencias_registros = _leer_contratos_y_registros(
+            contenido, nombre_archivo, hoja_contratacion
+        )
+
         return ResultadoLectura(
             tipo=TipoArchivo.EJECUCION,
-            filas={"ejecucion": filas_ejecucion, "contratacion": filas_contratacion},
+            filas={
+                "ejecucion": filas_ejecucion,
+                "contratacion": filas_contratacion,
+                "rubros": rubros,
+                "contratos": contratos,
+                "registros": registros,
+            },
             conteos={
                 "ejecucion": len(filas_ejecucion),
                 "contratacion": len(filas_contratacion),
+                "rubros": len(rubros),
+                "contratos": len(contratos),
+                "registros": len(registros),
             },
-            advertencias=[*advertencias_ejecucion, *advertencias_contratacion],
+            advertencias=[
+                *advertencias_ejecucion,
+                *advertencias_contratacion,
+                *advertencias_rubros,
+                *advertencias_registros,
+            ],
         )
