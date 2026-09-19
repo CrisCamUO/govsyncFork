@@ -47,7 +47,8 @@ import io
 import re
 import unicodedata
 import zipfile
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 import openpyxl
 import pandas as pd
@@ -253,13 +254,100 @@ def texto(valor: object) -> str | None:
     return limpio or None
 
 
+#: Todo lo que no sea dígito, coma, punto o signo menos se descarta (símbolo
+#: de moneda, espacios). No se usa para VALIDAR el formato, solo para limpiar
+#: antes de decidir qué representan '.' y ',' (ver `numero()`).
+_LIMPIA_MONEDA = re.compile(r"[^0-9,.\-]")
+
+#: Un entero agrupado en miles con '.' (formato colombiano SIN decimales):
+#: uno o más grupos de EXACTAMENTE 3 dígitos después del primero, sin coma.
+#: El peso colombiano no maneja 3 decimales (models.py usa Numeric(20, 2)),
+#: así que un único punto seguido de exactamente 3 dígitos es casi siempre
+#: separador de miles ('133.200' -> 133200), nunca un decimal fraccionario.
+_PATRON_MILES_SIN_DECIMAL = re.compile(r"^-?\d{1,3}(\.\d{3})+$")
+
+
 def numero(valor: object) -> Decimal | None:
     """Convierte una celda a Decimal tolerando el formato colombiano.
 
-    Ver peculiaridad 5. Decimal y no float: la aritmética binaria introduce
-    error de redondeo en pesos.
+    Ver peculiaridad 5: en los archivos reales conviven '$ 1.218.264.452'
+    (miles con punto, sin decimales), '$230.000.000,00' (miles con punto,
+    decimales con coma), '133200000' (plano) y '0.3774091922543439' (decimal
+    plano, ya sea que la celda llegue como texto por el `dtype=str` de
+    `leer_hoja` o, en llamadas directas a esta función, como el
+    float/int/Decimal nativo de una prueba).
+
+    Regla de desambiguación (no hay forma de acertar 100% sin contexto, pero
+    esta cubre los cuatro casos documentados):
+      1. Si hay coma: es formato colombiano con decimales -> el punto es
+         separador de miles (se elimina) y la coma es el separador decimal
+         (se convierte a punto).
+      2. Si no hay coma pero el texto entero son grupos de miles de 3 dígitos
+         separados por punto (`_PATRON_MILES_SIN_DECIMAL`): el punto es
+         separador de miles -> se elimina, sin agregar decimales.
+      3. En cualquier otro caso (un solo punto con un número de dígitos
+         distinto de 3, o ningún separador): se trata como un decimal plano,
+         tal cual.
+
+    Decimal y no float: la aritmética binaria introduce error de redondeo en
+    pesos. Devuelve None si la celda está vacía o no es reconocible como
+    número — igual que `texto()`/`_meta_a_decimal` en los demás lectores: es
+    responsabilidad de quien llama decidir si eso amerita una advertencia o
+    un rechazo.
     """
-    raise NotImplementedError("[HU-03][BE-01]")
+    if valor is None:
+        return None
+    if isinstance(valor, float) and valor != valor:  # NaN
+        return None
+    if isinstance(valor, Decimal):
+        return valor
+    if isinstance(valor, (int, float)):
+        return Decimal(str(valor))
+
+    texto_valor = _LIMPIA_MONEDA.sub("", str(valor).strip())
+    if not texto_valor or texto_valor in {"-", "."}:
+        return None
+
+    if "," in texto_valor:
+        texto_valor = texto_valor.replace(".", "").replace(",", ".")
+    elif _PATRON_MILES_SIN_DECIMAL.match(texto_valor):
+        texto_valor = texto_valor.replace(".", "")
+
+    try:
+        return Decimal(texto_valor)
+    except InvalidOperation:
+        return None
+
+
+def fecha(valor: object) -> date | None:
+    """Convierte una celda a `date`, tolerando que llegue como texto.
+
+    [HU-03][BE-06]: por el `dtype=str` de `leer_hoja`, una celda de fecha de
+    Excel llega como el texto de un timestamp de pandas
+    ('2026-01-13 00:00:00'), no como `datetime`/`date` nativo — salvo que se
+    llame directo (pruebas), donde sí puede llegar como objeto. Se soportan
+    ambos casos. Devuelve None si no es reconocible; es responsabilidad de
+    quien llama decidir si eso amerita una advertencia.
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    if isinstance(valor, float) and valor != valor:  # NaN
+        return None
+
+    texto_valor = str(valor).strip()
+    if not texto_valor:
+        return None
+    texto_valor = texto_valor.split(" ")[0].split("T")[0]
+    for patron in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(texto_valor, patron).date()
+        except ValueError:
+            continue
+    return None
 
 
 def rellenar_celdas_combinadas(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:

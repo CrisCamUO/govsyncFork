@@ -222,27 +222,24 @@ class ServicioCortes:
         uno genérico. Mismo criterio que `LectorArchivoFuente` (Strategy) en
         `ingesta/domain/contratos.py`; ver docstring de esa clase.
 
-        [HU-03][BE-06] y [HU-04][BE-04] quedan señalizadas explícitamente
-        como NO implementadas: ver el bloqueo documentado en la Fase 1 de
-        esta entrega (`ejecucion.py`/`_comun.py::numero` y
-        `proyectos.py::leer` siguen en NotImplementedError). Fabricar aquí
-        una implementación que dependa de datos que el lector no produce
-        violaría "nunca conviertas un supuesto en un requisito".
+        Las tres fuentes SÍ están implementadas: `lectores/pdt.py`,
+        `lectores/ejecucion.py` y `lectores/proyectos.py` producen sus claves
+        respectivas de `ResultadoLectura.filas`, y `RepositorioDatosCorteSQL`
+        las persiste con `reemplazar_metas`/`reemplazar_presupuesto`/
+        `reemplazar_proyectos` (ver el docstring de cada uno para el orden de
+        escritura y la resolución de FKs).
         """
         if tipo is TipoArchivoFuente.PDT:
             return self._datos.reemplazar_metas(corte_id, resultado.filas["metas"])
         if tipo is TipoArchivoFuente.EJECUCION:
-            raise NotImplementedError(
-                "[HU-03][BE-06]: bloqueado — ver Fase 1 de la entrega "
-                "(lectores/ejecucion.py y _comun.py::numero no producen los "
-                "campos que exige RepositorioDatosCorte.reemplazar_presupuesto)."
+            return self._datos.reemplazar_presupuesto(
+                corte_id,
+                resultado.filas["rubros"],
+                resultado.filas["contratos"],
+                resultado.filas["registros"],
             )
         if tipo is TipoArchivoFuente.PROYECTOS:
-            raise NotImplementedError(
-                "[HU-04][BE-04]: bloqueado — lectores/proyectos.py::leer "
-                "sigue NotImplementedError([HU-04][BE-01]); no hay resultado "
-                "que cargar todavía."
-            )
+            return self._datos.reemplazar_proyectos(corte_id, resultado.filas["proyectos"])
         raise ValueError(f"Tipo de archivo sin manejador de carga: {tipo!r}")
 
     def registrar_corte(self, corte_id) -> Corte:
