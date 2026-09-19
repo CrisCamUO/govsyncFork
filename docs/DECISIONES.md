@@ -427,3 +427,50 @@ bug). 258 passed en local (2026-09-19).
 
 **Estado:** Corregida.
 **Quién y cuándo:** Juan Esteban, 2026-09-19.
+
+## D14 · Categorización de descartes en `extraer_todos` (no cambia qué se descarta)
+
+**Hallazgo (2026-09-19, Juan David, construyendo `[HU-04][FE-03]`):** tras
+D13, `extraer_todos` registra correctamente todo candidato numérico de
+longitud inválida como descarte — pero un número suelto dentro de texto
+libre real (una fecha, un año, un conteo, un porcentaje sin `%`) cae en
+la misma lista con el mismo motivo genérico que un intento de código
+realmente roto. Ejemplo reproducido: `"Avance del 45% en la vigencia
+2026"` registra `"2026"` como descarte de 4 dígitos, indistinguible de
+un BPIN mal cortado. Para la tabla de revisión de FE-03 esto mezclaría
+ruido con hallazgos reales, restándole valor al motivo.
+
+**Decisión:** no se cambia qué termina en `codigos` vs `descartes` (la
+lógica de D13 queda igual). Se agrega `CategoriaDescarte` (`StrEnum`,
+mismo patrón que `TipoArchivo`) con tres valores estructurales, basados
+únicamente en la longitud ya calculada — sin inventar heurísticas de
+negocio sobre formatos de fecha/porcentaje/conteo:
+
+- `POSIBLE_CERO_PERDIDO` (longitud == 8 hoy): probable código real con
+  el cero comido por Excel. Prioridad alta de revisión.
+- `LONGITUD_CORTA` (menor a 9, distinta de 8): casi siempre ruido de
+  texto libre. Prioridad baja.
+- `LONGITUD_LARGA` (mayor a 9, no múltiplo): casi siempre un intento
+  real fallido (BPIN, monto sin separadores). Prioridad alta.
+
+`DescarteIndicador` gana el campo `categoria` (además de `motivo`, que
+se conserva sin cambios). Alternativa descartada: endurecer el propio
+`extraer_todos` para dejar de registrar números cortos sueltos — se
+rechaza porque metería juicio de negocio (qué es "sospechosamente
+corto") en una función que hoy es puramente mecánica, y cada formato de
+fecha/nota nuevo obligaría a tocarla de nuevo.
+
+**Alcance:** cambio contenido en `app/shared/codigos.py`. No se propaga
+todavía a `ResultadoLectura`/la API — `LectorProyectos.leer()` sigue
+volcando `descartes` a `advertencias` como texto plano (ver nota "FUERA
+DE ALCANCE" en el docstring del módulo del lector); FE-03 recibirá la
+categoría cuando se construya el endpoint de vista previa, en la tarjeta
+correspondiente, no en esta.
+
+**Evidencia:** `test_codigos.py` (20 pruebas, antes 16), incluye los tres
+ejemplos reales reportados por Juan David. 262 passed en local
+(2026-09-19). `ruff check`/`ruff format` limpios.
+
+**Estado:** Corregida.
+**Quién y cuándo:** Juan Esteban, 2026-09-19 (hallazgo de Juan David).
+

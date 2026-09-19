@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.shared.codigos import CodigoBpin, CodigoIndicadorProducto, DescarteIndicador
+from app.shared.codigos import (
+    CategoriaDescarte,
+    CodigoBpin,
+    CodigoIndicadorProducto,
+    DescarteIndicador,
+)
 from app.shared.errors import ReglaDeNegocioViolada
 
 
@@ -95,7 +100,11 @@ class TestCodigoIndicadorProducto:
         # conocida y documentada en el docstring de extraer_todos, D13):
         # no fabrica un código falso, solo entra a revisión manual.
         assert resultado.descartes == [
-            DescarteIndicador(valor_crudo="00", motivo=resultado.descartes[0].motivo)
+            DescarteIndicador(
+                valor_crudo="00",
+                motivo=resultado.descartes[0].motivo,
+                categoria=CategoriaDescarte.LONGITUD_CORTA,
+            )
         ]
 
     def test_extraer_todos_ignora_nombre_y_monto_de_un_solo_bloque(self) -> None:
@@ -120,6 +129,7 @@ class TestCodigoIndicadorProducto:
             DescarteIndicador(
                 valor_crudo="40110500",
                 motivo="8 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+                categoria=CategoriaDescarte.POSIBLE_CERO_PERDIDO,
             )
         ]
 
@@ -131,6 +141,7 @@ class TestCodigoIndicadorProducto:
             DescarteIndicador(
                 valor_crudo="202400000002842",
                 motivo="15 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+                categoria=CategoriaDescarte.LONGITUD_LARGA,
             )
         ]
 
@@ -198,6 +209,7 @@ class TestCodigoIndicadorProducto:
             DescarteIndicador(
                 valor_crudo="45990310045990230",
                 motivo="17 dígitos: ni 9 ni múltiplo de 9 (no se adivina dónde cortarlo).",
+                categoria=CategoriaDescarte.LONGITUD_LARGA,
             )
         ]
 
@@ -208,6 +220,48 @@ class TestCodigoIndicadorProducto:
         resultado = CodigoIndicadorProducto.extraer_todos(celda)
         assert resultado.codigos == []
         assert resultado.descartes == []
+
+    # --- Categorizacion de descartes (hallazgo de Juan David sobre texto
+    # libre real sin codigo, ver docs/DECISIONES.md D14) ----------------
+
+    @pytest.mark.parametrize(
+        "celda,crudos_esperados",
+        [
+            (
+                "Meta 4 de 12: construir 300 metros de via en la vereda El Progreso",
+                ["4", "300"],
+            ),
+            ("Sistema de Gestion implementado el 2024-09-19", ["2024", "09", "19"]),
+            # "45%" no es solo digitos: se ignora, no es un descarte
+            ("Avance del 45% en la vigencia 2026", ["2026"]),
+        ],
+    )
+    def test_extraer_todos_clasifica_numeros_sueltos_de_texto_libre_como_longitud_corta(
+        self, celda: str, crudos_esperados: list[str]
+    ) -> None:
+        """Un ano, un conteo o un porcentaje sueltos en una nota real nunca
+        pretendieron ser un codigo: siguen sin ir a `codigos` (eso no
+        cambio), pero ahora se distinguen con LONGITUD_CORTA de un
+        candidato realmente sospechoso (POSIBLE_CERO_PERDIDO/LONGITUD_LARGA),
+        para que una vista de revision ([HU-04][FE-03]) pueda bajarles
+        prioridad en vez de alarmar con el mismo motivo que un BPIN roto."""
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == []
+        assert [d.valor_crudo for d in resultado.descartes] == crudos_esperados
+        assert all(d.categoria == CategoriaDescarte.LONGITUD_CORTA for d in resultado.descartes)
+
+    def test_extraer_todos_distingue_las_tres_categorias_en_una_sola_celda(self) -> None:
+        """Una celda con las tres situaciones a la vez: cada descarte
+        conserva su propia categoria, no se colapsan en una sola."""
+        celda = "2026\n40110500\n202400000002842"
+        resultado = CodigoIndicadorProducto.extraer_todos(celda)
+        assert resultado.codigos == []
+        categorias = {d.valor_crudo: d.categoria for d in resultado.descartes}
+        assert categorias == {
+            "2026": CategoriaDescarte.LONGITUD_CORTA,
+            "40110500": CategoriaDescarte.POSIBLE_CERO_PERDIDO,
+            "202400000002842": CategoriaDescarte.LONGITUD_LARGA,
+        }
 
 
 class TestCodigoBpin:
