@@ -1,0 +1,53 @@
+name: SonarCloud
+
+# [DEV-06]. Archivo separado de `ci.yml` a propósito: ese archivo tiene la
+# regla vigente desde 2026-09-13 de no volver a modificarlo (ver
+# docs/TRAZABILIDAD.md, tabla de infraestructura).
+#
+# A diferencia de `ci.yml` (que solo corre contra `main`), este job también
+# corre contra `develop`: es donde de verdad se abren los PR del equipo (ver
+# CONTRIBUTING.md), y el análisis de calidad pierde valor si solo se ve al
+# final del sprint.
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+jobs:
+  sonarcloud:
+    name: Análisis SonarCloud
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SonarCloud necesita el historial completo para blame/nuevo código,
+          # no solo el último commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Instalar dependencias del backend
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Generar coverage.xml del backend
+        working-directory: backend
+        # Mismo comando que corre `backend-calidad` en ci.yml; se repite aquí
+        # (en vez de descargar el artefacto de ese job) porque este workflow
+        # puede dispararse solo, sin que `ci.yml` haya corrido en el mismo
+        # evento.
+        run: python -m pytest --cov=app --cov-report=xml
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Debe crearse en https://sonarcloud.io (My Account -> Security) y
+          # agregarse como secreto del repositorio antes de que este job
+          # pueda pasar — ver [DEV-06] en PLANDETRABAJO.md.
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
