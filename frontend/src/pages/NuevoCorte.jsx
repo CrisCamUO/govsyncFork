@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/cliente.js";
 import CargaDeArchivo from "../components/CargaDeArchivo.jsx";
 import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
@@ -30,14 +31,16 @@ import VistaPreviaDescartes from "../components/VistaPreviaDescartes.jsx";
  *           (con su `id`) queda en estado local y se avanza al paso 2 — antes
  *           el resultado de `crearCorte` se descartaba; [HU-02][FE-02] es el
  *           primer consumidor real de ese `id`.
- *   Paso 2  carga de archivos. Implementa PDT ([HU-02][FE-02], CA-1, CA-3,
- *           CA-4, CA-5) y PROYECTOS ([HU-04][FE-02]/[FE-03]) — EJECUCION
- *           ([HU-03][FE-02]) sigue sin adelantarse, tarjeta aparte. Tampoco
- *           se adelanta la reutilización automática de un corte anterior
+ *   Paso 2  carga de los tres archivos obligatorios: PDT ([HU-02][FE-02]),
+ *           PROYECTOS ([HU-04][FE-02]/[FE-03], Karold) y EJECUCION
+ *           ([HU-03][FE-02]) contra `POST /cortes/{id}/archivos/{tipo}`, que
+ *           ya cierra de punta a punta para los tres tipos. Tampoco se
+ *           adelanta la reutilización automática de un corte anterior
  *           (HU-01/CA-5, CA-6): eso es [HU-01][FE-03].
- *   Paso 3  registrar. Bloqueado: `POST /cortes/{id}/registrar` no existe
- *           todavía como endpoint (ver TODO en `api/cliente.js`), aunque el
- *           dominio/aplicación ya están listos ([HU-01][BE-05]).
+ *   Paso 3  registrar (`POST /cortes/{id}/registrar`, HU-01/CA-3, CA-4):
+ *           solo se habilita cuando los tres archivos están cargados. Al
+ *           registrar con éxito se ofrece un enlace directo a la matriz de
+ *           relación del corte.
  *
  * [HU-02][FE-02], D15 (docs/DECISIONES.md): el backend distingue solo DOS
  * `detalles.motivo` para el rechazo del PDT — `hoja_no_encontrada` cubre a
@@ -60,6 +63,10 @@ export default function NuevoCorte() {
   const [errorPdt, setErrorPdt] = useState(null);
   const [resultadoProyectos, setResultadoProyectos] = useState(null);
   const [errorProyectos, setErrorProyectos] = useState(null);
+  const [resultadoEjecucion, setResultadoEjecucion] = useState(null);
+  const [errorEjecucion, setErrorEjecucion] = useState(null);
+  const [registrando, setRegistrando] = useState(false);
+  const [errorRegistro, setErrorRegistro] = useState(null);
   const hoy = new Date();
   const fechaMaxima = [
     hoy.getFullYear(),
@@ -112,12 +119,40 @@ export default function NuevoCorte() {
     }
   }
 
+  // [HU-03][FE-02]: mismo criterio que subirPdt/subirProyectos.
+  async function subirEjecucion(archivo) {
+    setErrorEjecucion(null);
+    try {
+      const resultado = await api.cargarArchivo(corte.id, "EJECUCION", archivo);
+      setResultadoEjecucion(resultado);
+    } catch (errorApi) {
+      setErrorEjecucion(errorApi);
+    }
+  }
+
+  async function manejarRegistro() {
+    setErrorRegistro(null);
+    setRegistrando(true);
+    try {
+      const corteRegistrado = await api.registrarCorte(corte.id);
+      setCorte(corteRegistrado);
+    } catch (errorApi) {
+      setErrorRegistro(errorApi);
+    } finally {
+      setRegistrando(false);
+    }
+  }
+
   if (corte) {
+    const todosCargados = Boolean(resultadoPdt && resultadoProyectos && resultadoEjecucion);
+    const yaRegistrado = corte.estado === "REGISTRADO";
+
     return (
       <section>
         <h1>Cargar archivos del corte</h1>
         <p>
-          Corte de vigencia {corte.vigencia}, fecha {corte.fecha_corte}.
+          Corte de vigencia {corte.vigencia}, fecha {corte.fecha_corte} —
+          estado {corte.estado}.
         </p>
 
         <CargaDeArchivo
@@ -135,6 +170,24 @@ export default function NuevoCorte() {
           }
           error={errorPdt}
           onCargar={subirPdt}
+        />
+
+        <CargaDeArchivo
+          tipo="EJECUCION"
+          etiqueta="Ejecución presupuestal"
+          cargado={Boolean(resultadoEjecucion)}
+          resultado={
+            resultadoEjecucion &&
+            // [HU-03][FE-02]: el backend ya distingue ejecución de
+            // contratación (`filas_ejecucion_reconocidas`/
+            // `filas_contratacion_reconocidas`, ver cortes/api/router.py) —
+            // se muestran por separado en vez del total genérico, que
+            // mezclaría dos fuentes distintas en un solo número.
+            `${resultadoEjecucion.filas_ejecucion_reconocidas ?? 0} filas de ejecución y ` +
+              `${resultadoEjecucion.filas_contratacion_reconocidas ?? 0} de contratación reconocidas.`
+          }
+          error={errorEjecucion}
+          onCargar={subirEjecucion}
         />
 
         <CargaDeArchivo
@@ -172,6 +225,27 @@ export default function NuevoCorte() {
           error={errorProyectos}
           onCargar={subirProyectos}
         />
+
+        <div className="nuevo-corte-registro">
+          {yaRegistrado ? (
+            <p>
+              Corte registrado.{" "}
+              <Link to={`/matriz/${corte.id}`}>Ver matriz de relación</Link>
+            </p>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={!todosCargados || registrando}
+                onClick={manejarRegistro}
+              >
+                Registrar corte
+              </button>
+              {registrando && <Cargando mensaje="Registrando corte…" />}
+              <EstadoError error={errorRegistro} />
+            </>
+          )}
+        </div>
       </section>
     );
   }

@@ -250,8 +250,15 @@ def corregir_corte(
     return _a_dto(corte)
 
 
-# TODO [HU-01][BE-05] POST /cortes/{id}/registrar — el dominio y la
-#      aplicación YA están implementados y probados (`Corte.registrar()`
-#      en domain/entidades.py, `ServicioCortes.registrar_corte()` en
-#      application/casos_uso.py:245, tests en test_casos_uso_cortes.py:258,
-#      277, 285, 299) — falta únicamente exponer el endpoint HTTP aquí.
+@router.post("/{corte_id}/registrar", response_model=CorteRespuesta)
+def registrar_corte(corte_id: UUID, servicio: ServicioCortesDep) -> CorteRespuesta:
+    """HU-01 / CA-3, CA-4: transición BORRADOR -> REGISTRADO.
+
+    404 (corte inexistente) y 409 (falta algún archivo obligatorio, con
+    `detalles` indicando cuál) ya los lanza `ServicioCortes.registrar_corte`
+    (dominio + aplicación, `Corte.registrar()`) y ya están mapeados a HTTP en
+    app/core/errores.py — no se manejan aquí, mismo patrón que
+    `corregir_corte`.
+    """
+    corte = servicio.registrar_corte(corte_id)
+    return _a_dto(corte)

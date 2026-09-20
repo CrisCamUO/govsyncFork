@@ -481,3 +481,52 @@ def test_post_archivos_corte_inexistente_devuelve_404(cliente):
 
     assert respuesta.status_code == 404
     assert respuesta.json()["codigo"] == "recurso_no_encontrado"
+
+
+# --- POST /cortes/{id}/registrar -- [HU-01][BE-05] --------------------------
+
+
+def _cargar_los_tres_archivos(cliente, corte_id: str) -> None:
+    for tipo in ("PDT", "EJECUCION", "PROYECTOS"):
+        respuesta = cliente.post(
+            f"/api/v1/cortes/{corte_id}/archivos/{tipo}",
+            files={
+                "archivo": (
+                    f"{tipo.lower()}.xlsx",
+                    _xlsx_minimo(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert respuesta.status_code == 201
+
+
+def test_post_registrar_con_los_tres_archivos_devuelve_200(cliente_con_lectores):
+    corte_id = _crear_corte_borrador(cliente_con_lectores)
+    _cargar_los_tres_archivos(cliente_con_lectores, corte_id)
+
+    respuesta = cliente_con_lectores.post(f"/api/v1/cortes/{corte_id}/registrar")
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["id"] == corte_id
+    assert cuerpo["estado"] == "REGISTRADO"
+
+
+def test_post_registrar_con_archivo_faltante_devuelve_409(cliente_con_lectores):
+    corte_id = _crear_corte_borrador(cliente_con_lectores)
+
+    respuesta = cliente_con_lectores.post(f"/api/v1/cortes/{corte_id}/registrar")
+
+    assert respuesta.status_code == 409
+    detalles = respuesta.json()["detalles"]
+    assert "PDT" in detalles["archivos_faltantes"]
+    assert "EJECUCION" in detalles["archivos_faltantes"]
+    assert "PROYECTOS" in detalles["archivos_faltantes"]
+
+
+def test_post_registrar_corte_inexistente_devuelve_404(cliente):
+    respuesta = cliente.post(f"/api/v1/cortes/{uuid.uuid4()}/registrar")
+
+    assert respuesta.status_code == 404
+    assert respuesta.json()["codigo"] == "recurso_no_encontrado"
