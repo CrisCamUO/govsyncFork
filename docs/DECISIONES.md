@@ -473,4 +473,3 @@ ejemplos reales reportados por Juan David. 262 passed en local
 
 **Estado:** Corregida.
 **Quién y cuándo:** Juan Esteban, 2026-09-19 (hallazgo de Juan David).
-
