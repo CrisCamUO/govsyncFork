@@ -17,25 +17,25 @@
  * `columnas` en la respuesta, este archivo debe pasar a consumirla en vez
  * de mantener su propia copia.
  *
- * DOS COSAS QUE NO SE PUEDEN PERDER EN ESTA PANTALLA
+ * TRES COSAS QUE NO SE PUEDEN PERDER EN ESTA PANTALLA
  *
  * 1. Lo que no se pudo relacionar viaja como `null` desde el backend (NULL
- *    explícito, nunca una celda vacía ambigua ni un "N/A" inventado). FE-02
- *    usa `SinCorrespondencia` (`components/Estados.jsx`, ya existe y está
- *    documentada como consumida por esta tarjeta) para esas celdas. Una
- *    representación más elaborada de este caso (agrupar, distinguir motivos)
- *    es [HU-07][FE-03], no de aquí.
+ *    explícito, nunca una celda vacía ambigua ni un "N/A" inventado).
+ *    [HU-07][FE-03] representa esas celdas mediante `SinCorrespondencia`,
+ *    sin inventar asociaciones ni motivos que el backend no entrega.
  *
- * 2. Los códigos se muestran con la clase `.codigo` (monoespaciada): es lo
+ * 2. Las relaciones múltiples no se agrupan ni se colapsan en frontend:
+ *    cada elemento de `matriz.filas` se renderiza como una fila independiente,
+ *    preservando el resultado entregado por el backend (CA-7).
+ *
+ * 3. Los códigos se muestran con la clase `.codigo` (monoespaciada): es lo
  *    que hace visible el cero a la izquierda de 040110500. Nunca `Number()`
  *    ni `parseInt()` sobre `cod_bpin`, `cod_indicador_producto` ni
  *    `cod_indicador_ejecucion`.
  *
- * FUERA DE ALCANCE (no adelantar [HU-07][FE-03]/[FE-04] aquí): paginación o
- * scroll infinito real (se pide solo la primera página), agrupar
- * visualmente relaciones múltiples (CA-7 ya no las colapsa el backend; esta
- * pantalla se limita a no deduplicar `filas`), o un estilo distinto para
- * "sin cruce" más allá del texto de `SinCorrespondencia`.
+ * FUERA DE ALCANCE ([HU-07][FE-04]): paginación o scroll infinito real
+ * (se pide solo la primera página) y mejoras visuales adicionales que no
+ * formen parte de los criterios de aceptación de [HU-07][FE-03].
  */
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
