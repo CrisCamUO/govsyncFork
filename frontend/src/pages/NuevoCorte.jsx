@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api/cliente.js";
+import CargaDeArchivo from "../components/CargaDeArchivo.jsx";
 import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
 
 /**
@@ -7,7 +8,9 @@ import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
  *
  * TARJETAS: [HU-01][FE-02] Formulario con calendario restringido
  *           [HU-01][FE-03] Panel de fuentes obligatorias y reutilizadas
- *           [HU-02][FE-02] Pantalla de carga del PDT
+ *           [HU-02][FE-02] Pantalla de carga del PDT y confirmación de
+ *                           columnas (CA-1, CA-3, CA-4, CA-5) — YA
+ *                           IMPLEMENTADO, ver paso 2 abajo.
  *           [HU-03][FE-02] Pantalla de carga presupuestal
  *           [HU-04][FE-02] Carga de la plantilla BPIN
  *           [HU-04][FE-03] Vista previa de códigos extraídos y descartados
@@ -15,12 +18,28 @@ import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
  * FLUJO
  *   Paso 1  vigencia y fecha — el calendario NO permite fechas futuras (CA-2),
  *           pero el rechazo también debe venir del backend: ocultar la opción
- *           en el frontend no es una validación.
- *   Paso 2  carga de los tres archivos. El PDT y la plantilla del municipio
- *           aparecen ya cargados si hay un corte anterior (CA-5), con opción de
- *           reemplazarlos (CA-6). El de ejecución siempre se pide (CA-7).
- *   Paso 3  registrar. El botón solo procede con los tres archivos; si falta
- *           alguno se indica CUÁL (CA-3).
+ *           en el frontend no es una validación. Al enviar, el corte creado
+ *           (con su `id`) queda en estado local y se avanza al paso 2 — antes
+ *           el resultado de `crearCorte` se descartaba; [HU-02][FE-02] es el
+ *           primer consumidor real de ese `id`.
+ *   Paso 2  carga de archivos. Esta tarjeta ([HU-02][FE-02]) SOLO implementa
+ *           el PDT (CA-1, CA-3, CA-4, CA-5) — EJECUCION ([HU-03][FE-02]) y
+ *           PROYECTOS ([HU-04][FE-02]) son tarjetas aparte, no adelantadas
+ *           aquí. Tampoco se adelanta la reutilización automática de un
+ *           corte anterior (HU-01/CA-5, CA-6): eso es [HU-01][FE-03].
+ *   Paso 3  registrar. Bloqueado: `POST /cortes/{id}/registrar` no existe
+ *           todavía como endpoint (ver TODO en `api/cliente.js`), aunque el
+ *           dominio/aplicación ya están listos ([HU-01][BE-05]).
+ *
+ * [HU-02][FE-02], D15 (docs/DECISIONES.md): el backend distingue solo DOS
+ * `detalles.motivo` para el rechazo del PDT — `hoja_no_encontrada` cubre a
+ * la vez "pestaña no encontrada" (CA-2) y "archivo incorrecto" (CA-4);
+ * `columnas_faltantes` es el único que además trae qué columna falta
+ * (CA-3). Se muestra `error.message` del backend tal cual (ya es
+ * específico, `EstadoError` ya lo despliega junto con `detalles`), sin
+ * fabricar un tercer mensaje propio en este componente. Es un SUPUESTO,
+ * pendiente de que el equipo lo confirme — ver D15 para la alternativa
+ * descartada.
  */
 
 export default function NuevoCorte() {
@@ -28,6 +47,9 @@ export default function NuevoCorte() {
   const [fechaCorte, setFechaCorte] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
+  const [corte, setCorte] = useState(null);
+  const [resultadoPdt, setResultadoPdt] = useState(null);
+  const [errorPdt, setErrorPdt] = useState(null);
   const hoy = new Date();
   const fechaMaxima = [
     hoy.getFullYear(),
@@ -44,12 +66,55 @@ export default function NuevoCorte() {
     setEnviando(true);
 
     try {
-      await api.crearCorte(vigenciaNumerica, fechaCorte);
+      const corteCreado = await api.crearCorte(vigenciaNumerica, fechaCorte);
+      setCorte(corteCreado);
     } catch (errorApi) {
       setError(errorApi);
     } finally {
       setEnviando(false);
     }
+  }
+
+  // [HU-02][FE-02]: `CargaDeArchivo` nunca captura el error de `onCargar`
+  // (solo envuelve el estado "enviando" en un try/finally, ver su
+  // docstring) — este componente es quien debe atraparlo y pasarlo de
+  // vuelta como prop `error`, nunca dejar que se propague sin manejar.
+  async function subirPdt(archivo) {
+    setErrorPdt(null);
+    try {
+      const resultado = await api.cargarArchivo(corte.id, "PDT", archivo);
+      setResultadoPdt(resultado);
+    } catch (errorApi) {
+      setErrorPdt(errorApi);
+    }
+  }
+
+  if (corte) {
+    return (
+      <section>
+        <h1>Cargar archivos del corte</h1>
+        <p>
+          Corte de vigencia {corte.vigencia}, fecha {corte.fecha_corte}.
+        </p>
+
+        <CargaDeArchivo
+          tipo="PDT"
+          etiqueta="Plan Indicativo"
+          cargado={Boolean(resultadoPdt)}
+          resultado={
+            resultadoPdt &&
+            // HU-02/CA-5: "confirma visualmente cuántas metas fueron
+            // reconocidas" — `filas_reconocidas` es el conteo genérico que
+            // expone `ArchivoFuenteRespuestaParcial`; esta pantalla es la
+            // que sabe que para PDT esas filas son "metas" (el componente
+            // compartido no lo interpreta, ver su docstring).
+            `${resultadoPdt.filas_reconocidas} metas reconocidas.`
+          }
+          error={errorPdt}
+          onCargar={subirPdt}
+        />
+      </section>
+    );
   }
 
   return (
