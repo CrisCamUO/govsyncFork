@@ -16,6 +16,7 @@ from app.modules.ingesta.persistence.lectores.proyectos import (
     LectorProyectos,
     resolver_hoja_proyectos,
 )
+from app.shared.codigos import CategoriaDescarte
 from app.shared.errors import ArchivoInvalido
 from tests.fabricas import BPIN_1, BPIN_2, HOJA_PROYECTOS, _a_bytes, construir_proyectos
 
@@ -141,6 +142,24 @@ class TestLeer:
         assert resultado.filas["proyectos"][0]["codigos_indicador"] == []
         assert len(resultado.advertencias) == 1
         assert BPIN_1 in resultado.advertencias[0]
+
+    def test_fragmento_descartado_se_propaga_estructurado_con_categoria(self) -> None:
+        """D14: el DescarteIndicador crudo (con categoria) llega intacto a
+        ResultadoLectura.descartes, no solo como texto en advertencias."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Indicador de producto"])
+        hoja.append([BPIN_1, "170202300,2026"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        assert resultado.filas["proyectos"][0]["codigos_indicador"] == ["170202300"]
+        assert len(resultado.descartes) == 1
+        assert resultado.descartes[0].valor_crudo == "2026"
+        assert resultado.descartes[0].categoria == CategoriaDescarte.LONGITUD_CORTA
+        assert len(resultado.advertencias) == 1
 
     def test_indicador_con_codigos_repetidos_no_los_deduplica(self) -> None:
         """CA-4 (docstring de extraer_todos): un código repetido en la celda

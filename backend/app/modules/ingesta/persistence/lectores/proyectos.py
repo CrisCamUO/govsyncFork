@@ -109,7 +109,7 @@ from app.modules.ingesta.domain.contratos import (
     TipoArchivo,
 )
 from app.modules.ingesta.persistence.lectores import _comun
-from app.shared.codigos import CodigoIndicadorProducto
+from app.shared.codigos import CodigoIndicadorProducto, DescarteIndicador
 from app.shared.errors import ArchivoInvalido
 
 OBLIGATORIAS: dict[str, tuple[str, ...]] = {
@@ -190,6 +190,7 @@ class LectorProyectos(LectorArchivoFuente):
 
         proyectos: list[dict[str, Any]] = []
         advertencias: list[str] = []
+        descartes: list[DescarteIndicador] = []
         for posicion, (_, fila) in enumerate(df.iterrows(), start=1):
             bpin = _comun.texto(fila[mapeo["bpin"]])
             indicador_raw = _comun.texto(fila[mapeo["indicador_producto_raw"]])
@@ -216,6 +217,10 @@ class LectorProyectos(LectorArchivoFuente):
                 # motivo — se reutiliza el mecanismo de advertencias que ya
                 # usa este lector (docstring del módulo, "FUERA DE ALCANCE
                 # DE [HU-04][BE-01]"), no se construye una estructura nueva.
+                # D14: además se conserva el DescarteIndicador crudo (con su
+                # categoria) para que ResultadoLectura.descartes lo propague
+                # hasta la API sin reconstruirlo desde el texto de arriba.
+                descartes.append(descarte)
                 advertencias.append(
                     f"«{hoja}», fila {posicion} (BPIN {bpin!r}): fragmento "
                     f"de indicador descartado ({descarte.motivo}): "
@@ -240,4 +245,5 @@ class LectorProyectos(LectorArchivoFuente):
             filas={"proyectos": proyectos},
             conteos={"proyectos": len(proyectos)},
             advertencias=advertencias,
+            descartes=descartes,
         )
