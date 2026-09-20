@@ -103,10 +103,16 @@ export const api = {
    */
   obtenerCorte: (id) => solicitar(`/api/v1/cortes/${id}`),
 
-  // TODO [HU-01][FE-01] registrarCorte(id) -> POST /cortes/{id}/registrar.
-  //      BLOQUEADO: el endpoint no existe todavía. Depende de [HU-01][BE-05],
-  //      donde Corte.registrar() y ServicioCortes.registrar_corte() siguen en
-  //      NotImplementedError.
+  /**
+   * HU-01/CA-3, CA-4. Transición BORRADOR -> REGISTRADO.
+   *
+   * `POST /cortes/{id}/registrar` -- el endpoint ya existe (expuesto sobre
+   * `Corte.registrar()`/`ServicioCortes.registrar_corte()`, ya implementados
+   * y probados). 409 con `detalles.archivos_faltantes` si falta alguna de
+   * las tres fuentes; 404 si el corte no existe.
+   */
+  registrarCorte: (id) =>
+    solicitar(`/api/v1/cortes/${id}/registrar`, { metodo: "POST" }),
 
   /**
    * HU-02/CA-1, HU-03/CA-1, HU-04/CA-1: sube el archivo fuente `tipo` para
