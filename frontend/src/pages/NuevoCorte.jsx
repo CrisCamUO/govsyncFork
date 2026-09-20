@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { api } from "../api/cliente.js";
+import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
+
 /**
  * Asistente de creación de un corte.
  *
@@ -18,6 +22,76 @@
  *   Paso 3  registrar. El botón solo procede con los tres archivos; si falta
  *           alguno se indica CUÁL (CA-3).
  */
+
 export default function NuevoCorte() {
-  return null; // TODO
+  const [vigencia, setVigencia] = useState("");
+  const [fechaCorte, setFechaCorte] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState(null);
+  const hoy = new Date();
+  const fechaMaxima = [
+    hoy.getFullYear(),
+    String(hoy.getMonth() + 1).padStart(2, "0"),
+    String(hoy.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  async function manejarEnvio(evento) {
+    evento.preventDefault();
+
+    const vigenciaNumerica = Number(vigencia);
+
+    setError(null);
+    setEnviando(true);
+
+    try {
+      await api.crearCorte(vigenciaNumerica, fechaCorte);
+    } catch (errorApi) {
+      setError(errorApi);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <section>
+      <form onSubmit={manejarEnvio}>
+        <h1>Crear corte de seguimiento</h1>
+
+        <div>
+          <label htmlFor="vigencia">Vigencia</label>
+          <input
+            id="vigencia"
+            name="vigencia"
+            type="number"
+            value={vigencia}
+            onChange={(evento) => setVigencia(evento.target.value)}
+            required
+          />
+        </div>
+
+        <div>
+          <label htmlFor="fecha-corte">Fecha del corte</label>
+          <input
+            id="fecha-corte"
+            name="fechaCorte"
+            type="date"
+            max={fechaMaxima}
+            value={fechaCorte}
+            onChange={(evento) => {
+              const nuevaFecha = evento.target.value;
+              if (nuevaFecha <= fechaMaxima) {
+                setFechaCorte(nuevaFecha);
+              }
+            }}
+            required
+          />
+        </div>
+        <button type="submit" disabled={enviando}>
+          Continuar
+        </button>
+        {enviando && <Cargando mensaje="Creando corte…" />}
+        <EstadoError error={error} />
+      </form>
+    </section>
+  );
 }
