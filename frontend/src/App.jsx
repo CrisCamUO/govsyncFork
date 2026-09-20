@@ -11,6 +11,7 @@ import { Route, Routes } from "react-router-dom";
 import NuevoCorte from "./pages/NuevoCorte.jsx";
 
 import Disposicion from "./components/Disposicion.jsx";
+import MatrizRelacion from "./pages/MatrizRelacion.jsx";
 
 function Pendiente() {
   return (
@@ -36,7 +37,7 @@ export default function App() {
       <Route element={<Disposicion />}>
         {/* TODO [HU-01][FE-02] <Route path="/cortes" element={<Cortes />} /> */}
         <Route path="/cortes/nuevo" element={<NuevoCorte />} />
-        {/* TODO [HU-07][FE-02] <Route path="/matriz/:corteId?" element={<MatrizRelacion />} /> */}
+        <Route path="/matriz/:corteId?" element={<MatrizRelacion />} />
         <Route path="*" element={<Pendiente />} />
       </Route>
     </Routes>

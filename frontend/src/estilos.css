@@ -153,3 +153,41 @@ body {
 .vista-previa-descartes-motivo {
   color: var(--tinta-suave);
 }
+
+/* [UX-04] NULL explícito (Estados.jsx::SinCorrespondencia): distinto de una
+   celda vacía ambigua, sin inventar un "N/A". */
+.estado-sin-correspondencia {
+  color: var(--tinta-suave);
+  font-style: italic;
+}
+
+/* [HU-07][FE-02] Tabla de la matriz de relación: encabezado fijo al hacer
+   scroll, columnas de código con ancho de contenido (nunca truncadas: ver
+   `.codigo` arriba). */
+.matriz-relacion-tabla-contenedor {
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.matriz-relacion-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--superficie);
+}
+
+.matriz-relacion-tabla th,
+.matriz-relacion-tabla td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+}
+
+.matriz-relacion-tabla thead th {
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+  background: var(--superficie);
+  box-shadow: inset 0 -1px 0 var(--borde);
+}
