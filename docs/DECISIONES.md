@@ -496,20 +496,22 @@ producen el mismo `codigo`/`motivo` y el mismo `error.message`
 Plan Indicativo."), que de hecho ya es válido para ambos casos.
 
 **Alternativa descartada:** pedir al backend que separe CA-4 en su propio
-`motivo` (heurística para detectar que el archivo es de OTRO tipo de fuente
-antes de rechazar). Se descarta para esta tarjeta por ser un cambio de
-backend fuera del alcance de una tarjeta de frontend, y potencial
-sobreingeniería si nadie ha reportado que el mensaje actual confunda a la
-administradora.
+`motivo` mediante una heurística que intente clasificar qué otro tipo de
+archivo fue cargado. El CA-4 aprobado establece que el archivo que no
+corresponde al formato esperado de PDT debe rechazarse sin intentar adivinar
+su contenido. Introducir esa clasificación agregaría una regla no requerida
+y podría contradecir expresamente ese criterio.
 
 **A qué afecta:** `frontend/src/pages/NuevoCorte.jsx` (paso 2, carga del
 PDT) — no requiere ningún cambio en `Estados.jsx`/`cliente.js` más allá de
 lo que ya hacían (mostrar `error.message` + el desglose de `detalles`
 conocidos).
 
-**Estado:** SUPUESTO — asumido por Juan Esteban para poder implementar
-`[HU-02][FE-02]` sin bloquear a Karold; pendiente de que ella o quien
-redactó la tarjeta lo confirme o pida la Alternativa B (cambio de backend).
+**Estado:** DECISIÓN RATIFICADA — el equipo confirmó que el comportamiento
+actual, que rechaza el archivo por no cumplir la estructura esperada del PDT
+sin intentar clasificar qué tipo de archivo fue cargado, es consistente con
+CA-4. Por tanto, `[HU-02][FE-02]` no debe fabricar un tercer mensaje ni
+introducir una heurística de detección en frontend o backend.
 
-**Quién y cuándo:** Juan Esteban, 2026-09-20.
-
+**Quién y cuándo:** Juan Esteban, 2026-09-20. Ratificada por el equipo,
+2026-09-20.
