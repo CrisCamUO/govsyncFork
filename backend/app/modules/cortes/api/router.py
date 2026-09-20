@@ -28,10 +28,11 @@ cubre:
   (PDT/EJECUCION/PROYECTOS, HU-02/03/04 CA-1) — el guard temporal que
   rechazaba EJECUCION/PROYECTOS con 501 se retiró: `[HU-03][BE-06]` y
   `[HU-04][BE-01]` ya cierran en `develop`. El cuerpo de éxito
-  (`ArchivoFuenteRespuestaParcial`) sigue siendo provisional para los 3:
-  no cumple todavía el contrato completo de
-  `docs/ESPECIFICACIONES_TECNICAS.md` (falta `advertencias` y los campos
-  específicos por tipo — ver docstring del DTO).
+  (`ArchivoFuenteRespuestaParcial`) ya expone `descartes` con `categoria`
+  ([HU-04][FE-03], D14) pero sigue siendo provisional: no cumple todavía
+  el contrato completo de `docs/ESPECIFICACIONES_TECNICAS.md` (falta
+  `advertencias` y, para PROYECTOS, `proyectos_reconocidos`/
+  `indicadores_extraidos` separados — ver docstring del DTO).
 
 PATCH /cortes/{id} (D11, docs/DECISIONES.md, aclaración 2026-09-19): corrige
 vigencia/fecha de un corte en BORRADOR. Solo aplica a BORRADOR (un
@@ -60,6 +61,7 @@ from pydantic import BaseModel
 
 from app.core.dependencias import ServicioCortesDep
 from app.modules.cortes.domain.entidades import Corte, TipoArchivoFuente
+from app.shared.codigos import CategoriaDescarte
 
 router = APIRouter(prefix="/cortes", tags=["Cortes de seguimiento"])
 
@@ -101,21 +103,39 @@ class CorteRespuesta(BaseModel):
     archivos: list[ArchivoFuenteRespuesta]
 
 
+class DescarteRespuesta(BaseModel):
+    """D14 (docs/DECISIONES.md): un fragmento de indicador descartado, con
+    `categoria` para que la vista previa de [HU-04][FE-03] priorice
+    descartes reales (POSIBLE_CERO_PERDIDO/LONGITUD_LARGA) sobre ruido de
+    texto libre (LONGITUD_CORTA) — ver docstring de `CategoriaDescarte`
+    en `shared/codigos.py`.
+    """
+
+    valor_crudo: str
+    motivo: str
+    categoria: CategoriaDescarte
+
+
 class ArchivoFuenteRespuestaParcial(BaseModel):
     """Forma PROVISIONAL de la respuesta de POST /cortes/{id}/archivos/{tipo}.
 
-    NO es el contrato completo de docs/ESPECIFICACIONES_TECNICAS.md (que
-    exige `advertencias` y, para EJECUCION/PROYECTOS, campos distintos por
-    tipo — hasta 3, incluyendo un array `descartes`). `ArchivoFuente`, lo
-    que devuelve `ServicioCortes.cargar_archivo()`, no produce esos campos
-    hoy: `filas_reconocidas` es un solo entero y `advertencias` se
-    descarta dentro del caso de uso, ni siquiera para PDT. Definir la forma
-    final es trabajo aparte (toca `casos_uso.py`, de Juan Esteban).
+    `descartes` ya cierra ([HU-04][FE-03], PR #77 propagó
+    `ArchivoFuente.descartes` desde `ResultadoLectura`) — `[]` para
+    PDT/EJECUCION (no producen descartes de código) y para archivos
+    reutilizados, comportamiento correcto, no una limitación.
+
+    Sigue sin ser el contrato completo de docs/ESPECIFICACIONES_TECNICAS.md:
+    para PROYECTOS esa especificación también pide `proyectos_reconocidos`/
+    `indicadores_extraidos` separados — `filas_reconocidas` sigue siendo un
+    solo entero (`reemplazar_proyectos` no distingue ambos conteos hoy).
+    Deliberadamente fuera de este cambio (Opción 2, registrada, no
+    bloqueante) — ver docs/DECISIONES.md.
     """
 
     tipo: str
     nombre_archivo: str
     filas_reconocidas: int
+    descartes: list[DescarteRespuesta]
 
 
 def _a_dto(corte: Corte) -> CorteRespuesta:
@@ -194,6 +214,14 @@ async def cargar_archivo(
         tipo=resultado.tipo.value,
         nombre_archivo=resultado.nombre_archivo,
         filas_reconocidas=resultado.filas_reconocidas,
+        descartes=[
+            DescarteRespuesta(
+                valor_crudo=descarte.valor_crudo,
+                motivo=descarte.motivo,
+                categoria=descarte.categoria,
+            )
+            for descarte in resultado.descartes
+        ],
     )
 
 
