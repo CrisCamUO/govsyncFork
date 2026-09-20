@@ -13,8 +13,8 @@ import VistaPreviaDescartes from "../components/VistaPreviaDescartes.jsx";
  *                           columnas (CA-1, CA-3, CA-4, CA-5) — YA
  *                           IMPLEMENTADO, ver paso 2 abajo.
  *           [HU-03][FE-02] Pantalla de carga presupuestal
- *           [HU-04][FE-02] Carga de la plantilla BPIN — YA IMPLEMENTADO,
- *                           ver paso 2 abajo. Tarjeta de Karold, adelantada
+ *           [HU-04][FE-02] Carga de la plantilla BPIN (CA-1, CA-2) — YA
+ *                           IMPLEMENTADO, ver paso 2 abajo. Tarjeta de Karold, adelantada
  *                           aquí porque no había respuesta de coordinación;
  *                           mismo precedente que sentó Juan Esteban con PDT
  *                           bajo su propia tarjeta [HU-02][FE-02] — revisar
@@ -149,6 +149,17 @@ export default function NuevoCorte() {
                     que para PROYECTOS esas filas son "proyectos". */}
                 <p>
                   {resultadoProyectos.filas_reconocidas} proyectos reconocidos.
+                </p>
+
+                {/* [HU-04][FE-02]/CA-2: mensaje explícito exigido por la
+                    tarjeta — evita que la administradora crea que el
+                    sistema rechazó el archivo por no tener estructura
+                    estándar. El backend ya lo conserva tal cual
+                    (HU-04/CA-2, lectores/proyectos.py), esto solo lo
+                    comunica. */}
+                <p className="carga-de-archivo-nota">
+                  El archivo se conservó tal cual fue cargado, aunque su
+                  estructura no sea estándar.
                 </p>
 
                 {/* [HU-04][FE-03]: ya construido en PR #79, solo se integra. */}
