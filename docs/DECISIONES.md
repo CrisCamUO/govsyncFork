@@ -515,3 +515,50 @@ introducir una heurística de detección en frontend o backend.
 
 **Quién y cuándo:** Juan Esteban, 2026-09-20. Ratificada por el equipo,
 2026-09-20.
+
+---
+
+## D16 · `[HU-04][FE-03]`: `ResultadoLectura.codigos` se deduplica por `.valor`, preservando el orden de primera aparición
+
+**Decisión:** el nuevo campo `codigos: list[CodigoIndicadorProducto]`
+(`ResultadoLectura`/`ArchivoFuente`, mismo patrón que `descartes` de D14)
+se llena en `LectorProyectos.leer()` deduplicando por `.valor` con un
+diccionario (no un `set`), preservando el orden en que cada código
+apareció por primera vez en el archivo.
+
+**Motivo:** `[HU-04][FE-03]` pide, con texto literal, "vista previa de
+códigos extraídos **y** descartados, con el motivo". PR #79/#82 ya
+cerraron la mitad de `descartes` (D14); faltaba la mitad de los códigos
+que sí se reconocieron. El mismo código de indicador aparece
+legítimamente en varias filas/proyectos del archivo de Proyectos (no es
+un error, es información real del dominio — ver test
+`test_indicador_con_codigos_repetidos_no_los_deduplica`, que cubre la
+repetición DENTRO de una celda). Exponer esa lista sin deduplicar
+convertiría la vista previa en un log de apariciones, no en una
+confirmación de "qué reconoció el sistema" — que es el propósito de una
+vista previa para la administradora. El orden de primera aparición, y no
+un orden alfabético o de un `set` (que no lo garantiza), facilita que la
+usuaria contraste la lista contra el Excel original.
+
+**Alternativa descartada:** replicar el patrón de `descartes` sin
+deduplicar (acumular cada ocurrencia con `.extend()`). Se descartó porque
+`descartes` representa eventos distintos que merecen su propia fila con
+motivo; `codigos` no tiene motivo por entrada, solo identifica qué se
+reconoció.
+
+**A qué afecta:** `ingesta/domain/contratos.py::ResultadoLectura.codigos`,
+`cortes/domain/entidades.py::ArchivoFuente.codigos`,
+`ingesta/persistence/lectores/proyectos.py::LectorProyectos.leer`,
+`cortes/application/casos_uso.py::cargar_archivo`. La deduplicación ocurre
+únicamente en el lector (Transform); `casos_uso.py` y `entidades.py`
+propagan la lista tal cual, sin volver a deduplicar. Queda pendiente que
+Juan David conecte `resultado.codigos` en el DTO de respuesta
+(`ArchivoFuenteRespuestaParcial`, `router.py`) — su parte ya está
+diseñada contra `[]` y no depende de esta decisión.
+
+**Estado:** DECISIÓN RATIFICADA. Propuesta original de Juan David
+(diseño del campo, mismos 4 archivos que D14) con el detalle de
+deduplicación y orden acordado explícitamente antes de escribir código.
+
+**Quién y cuándo:** Juan David (propuesta), Juan Esteban (deduplicación
+por orden de aparición), 2026-09-20.

@@ -191,6 +191,13 @@ class LectorProyectos(LectorArchivoFuente):
         proyectos: list[dict[str, Any]] = []
         advertencias: list[str] = []
         descartes: list[DescarteIndicador] = []
+        # [HU-04][FE-03]: acumula los codigos SI reconocidos, deduplicados
+        # por `.valor` preservando el orden de primera aparicion en el
+        # archivo (decision del equipo, 2026-09-20 -- dict, no set, porque
+        # un set no garantiza orden). El mismo codigo aparece legitimamente
+        # en varios proyectos; esta vista previa es para confirmar QUE se
+        # reconocio, no para contar apariciones.
+        codigos_extraidos: dict[str, CodigoIndicadorProducto] = {}
         for posicion, (_, fila) in enumerate(df.iterrows(), start=1):
             bpin = _comun.texto(fila[mapeo["bpin"]])
             indicador_raw = _comun.texto(fila[mapeo["indicador_producto_raw"]])
@@ -206,6 +213,8 @@ class LectorProyectos(LectorArchivoFuente):
 
             resultado_indicadores = CodigoIndicadorProducto.extraer_todos(indicador_raw)
             codigos = resultado_indicadores.codigos
+            for codigo in codigos:
+                codigos_extraidos.setdefault(codigo.valor, codigo)
             if indicador_raw is not None and not codigos:
                 advertencias.append(
                     f"«{hoja}», fila {posicion} (BPIN {bpin!r}): ningún "
@@ -246,4 +255,5 @@ class LectorProyectos(LectorArchivoFuente):
             conteos={"proyectos": len(proyectos)},
             advertencias=advertencias,
             descartes=descartes,
+            codigos=list(codigos_extraidos.values()),
         )
