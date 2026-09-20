@@ -111,6 +111,16 @@ export const api = {
   //      POST /cortes/{id}/archivos/{tipo}. BLOQUEADO: el endpoint no existe
   //      ([HU-02..04][BE-04/BE-06]); no hay ningún UploadFile en el backend.
   //      `solicitar` ya trae lista la rama FormData con el campo "archivo".
-  // TODO [HU-07][FE-01] matriz(corteId, pagina, tamanoPagina). BLOQUEADO: el
-  //      router de trazabilidad no está montado en main.py.
+
+  /**
+   * HU-07/CA-1. Matriz de relación de un corte, paginada.
+   *
+   * `GET /matriz-relacion/{corteId}` ([HU-07][FE-01], montado en main.py).
+   * 404 con `codigo: "recurso_no_encontrado"` si el corte no existe. 409 con
+   * `detalles.archivos_faltantes` si falta alguna de las tres fuentes.
+   */
+  matriz: (corteId, pagina = 1, tamanoPagina = 50) =>
+    solicitar(
+      `/api/v1/matriz-relacion/${corteId}?pagina=${pagina}&tamano_pagina=${tamanoPagina}`,
+    ),
 };
