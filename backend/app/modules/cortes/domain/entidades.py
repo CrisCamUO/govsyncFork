@@ -34,6 +34,7 @@ from datetime import date
 # from enum import Enum
 from enum import StrEnum
 
+from app.shared.codigos import DescarteIndicador
 from app.shared.errors import OperacionNoPermitida, ReglaDeNegocioViolada
 
 
@@ -77,6 +78,12 @@ class ArchivoFuente:
     filas_reconocidas: int = 0
     reutilizado: bool = False
     corte_origen_id: uuid.UUID | None = None
+    descartes: list[DescarteIndicador] = field(default_factory=list)
+    """D14: propagados desde ResultadoLectura.descartes (contratos.py) por
+    ServicioCortes._cargar_resultado. `[]` para archivos reutilizados
+    (nunca se leyo nada) y para PDT/EJECUCION (no producen descartes de
+    codigo hoy).
+    """
 
 
 @dataclass(slots=True)
