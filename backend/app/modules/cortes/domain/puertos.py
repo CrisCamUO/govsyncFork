@@ -42,7 +42,9 @@ class RepositorioCortes(ABC):
         """
 
     @abstractmethod
-    def existe_corte_duplicado(self, vigencia: int, fecha_corte: date) -> bool:
+    def existe_corte_duplicado(
+        self, vigencia: int, fecha_corte: date, *, excluir_id: uuid.UUID | None = None
+    ) -> bool:
         """D9: no puede haber dos cortes con la misma vigencia y la misma
         fecha_corte exacta (docs/DECISIONES.md, D9).
 
@@ -53,6 +55,11 @@ class RepositorioCortes(ABC):
         necesario como respaldo contra la condición de carrera — este
         método no lo reemplaza, resuelve el caso común con un mensaje de
         negocio, igual que `existe_borrador_activo` para D11.
+
+        `excluir_id` (D11, PATCH /cortes/{id}): `corregir_corte` consulta
+        este método contra el propio corte que está corrigiendo — sin
+        excluirlo, corregir un corte manteniendo su misma vigencia/fecha se
+        autorrechazaría con un 409 falso.
         """
 
     @abstractmethod
@@ -73,6 +80,15 @@ class RepositorioCortes(ABC):
     @abstractmethod
     def confirmar_registro(self, corte: Corte) -> None:
         """Persiste el paso a estado REGISTRADO."""
+
+    @abstractmethod
+    def confirmar_correccion(self, corte: Corte) -> None:
+        """D11: persiste vigencia/fecha corregidas de un corte en BORRADOR.
+
+        La validación (estado BORRADOR, fecha no futura) ya la hizo el
+        dominio (`Corte.corregir()`) antes de llegar aquí — este método solo
+        persiste.
+        """
 
 
 class RepositorioDatosCorte(ABC):

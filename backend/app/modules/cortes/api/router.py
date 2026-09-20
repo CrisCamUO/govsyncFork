@@ -17,12 +17,13 @@ Al terminar, registrar el router en app/main.py.
 =============================================================================
 ALCANCE DE [HU-01][FE-01] EN ESTA ITERACIÓN
 =============================================================================
-Cubre POST /cortes, GET /cortes y GET /cortes/{id}. NO cubre:
+Cubre POST /cortes, GET /cortes, GET /cortes/{id} y PATCH /cortes/{id}. NO
+cubre:
 
 - POST /cortes/{id}/registrar: `Corte.registrar()` y
-  `ServicioCortes.registrar_corte()` existen con firma definida pero lanzan
-  NotImplementedError — es [HU-01][BE-05] (Juan Esteban). Se agrega en un
-  commit posterior cuando esa tarjeta cierre.
+  `ServicioCortes.registrar_corte()` ya están implementados y probados
+  (`casos_uso.py:245`) — es [HU-01][BE-05] (Juan Esteban); falta únicamente
+  exponer el endpoint HTTP aquí, no la lógica de negocio.
 - POST /cortes/{id}/archivos/{tipo}: implementado para los 3 tipos
   (PDT/EJECUCION/PROYECTOS, HU-02/03/04 CA-1) — el guard temporal que
   rechazaba EJECUCION/PROYECTOS con 501 se retiró: `[HU-03][BE-06]` y
@@ -31,9 +32,15 @@ Cubre POST /cortes, GET /cortes y GET /cortes/{id}. NO cubre:
   no cumple todavía el contrato completo de
   `docs/ESPECIFICACIONES_TECNICAS.md` (falta `advertencias` y los campos
   específicos por tipo — ver docstring del DTO).
-- 409 por "vigencia+fecha duplicada": GAP. No existe hoy, en casos_uso.py
-  ni en el puerto RepositorioCortes, ninguna consulta que la soporte —
-  es lógica de aplicación, no de esta capa. Se propone como tarjeta nueva.
+
+PATCH /cortes/{id} (D11, docs/DECISIONES.md, aclaración 2026-09-19): corrige
+vigencia/fecha de un corte en BORRADOR. Solo aplica a BORRADOR (un
+REGISTRADO se rechaza con 409), es total (exige vigencia y fecha_corte
+juntos, mismo contrato que POST /cortes) y es exclusivamente vigencia/fecha
+— no toca `archivos` (eso sigue su propio mecanismo de reemplazo por tipo,
+HU-06). 409 por "vigencia+fecha duplicada" reutiliza
+`existe_corte_duplicado` (domain/puertos.py, ya consumida por `crear_corte`)
+excluyendo al propio corte que se corrige.
 
 El DTO de salida (`CorteRespuesta`) NO expone `archivos_faltantes`: el
 array `archivos` solo lista lo ya cargado/reutilizado, tal como está
@@ -61,6 +68,21 @@ router = APIRouter(prefix="/cortes", tags=["Cortes de seguimiento"])
 
 
 class CorteEntrada(BaseModel):
+    vigencia: int
+    fecha_corte: date
+
+
+class CorteCorreccion(BaseModel):
+    """D11: cuerpo de PATCH /cortes/{id}.
+
+    Misma forma que `CorteEntrada` hoy, pero clase propia a propósito:
+    corregir y crear son operaciones semánticamente distintas aunque
+    compartan validación — el nombre debe reflejarlo en el schema de
+    OpenAPI, y separarlas evita tener que elegir entre romper POST /cortes
+    o duplicar la clase bajo presión si D11 evoluciona a un PATCH parcial
+    más adelante.
+    """
+
     vigencia: int
     fecha_corte: date
 
@@ -175,15 +197,24 @@ async def cargar_archivo(
     )
 
 
+@router.patch("/{corte_id}", response_model=CorteRespuesta)
+def corregir_corte(
+    corte_id: UUID, entrada: CorteCorreccion, servicio: ServicioCortesDep
+) -> CorteRespuesta:
+    """D11 (docs/DECISIONES.md, aclaración 2026-09-19): corrige vigencia/
+    fecha de un corte en BORRADOR.
+
+    404 (corte inexistente), 409 (corte no está en BORRADOR, o vigencia+
+    fecha duplicada contra OTRO corte) y 422 (fecha futura) ya los lanza
+    `ServicioCortes.corregir_corte` (dominio + aplicación) y ya están
+    mapeados a HTTP en app/core/errores.py — no se manejan aquí.
+    """
+    corte = servicio.corregir_corte(corte_id, entrada.vigencia, entrada.fecha_corte)
+    return _a_dto(corte)
+
+
 # TODO [HU-01][BE-05] POST /cortes/{id}/registrar — el dominio y la
 #      aplicación YA están implementados y probados (`Corte.registrar()`
 #      en domain/entidades.py, `ServicioCortes.registrar_corte()` en
 #      application/casos_uso.py:245, tests en test_casos_uso_cortes.py:258,
 #      277, 285, 299) — falta únicamente exponer el endpoint HTTP aquí.
-# La validación de "vigencia+fecha duplicada" (D9) YA existe: ver
-#      `existe_corte_duplicado` en domain/puertos.py:44 y su implementación
-#      SQL en persistence/repositorios.py:120, ya consumida por
-#      `crear_corte` (casos_uso.py) con 409 mapeado en core/errores.py.
-# TODO D11: PATCH /cortes/{id} para corregir vigencia/fecha de un corte
-#      en BORRADOR — ver docs/DECISIONES.md D11 (aclaración 2026-09-19)
-#      para el alcance exacto antes de implementar.

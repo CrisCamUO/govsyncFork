@@ -129,6 +129,25 @@ class Corte:
             )
         self.estado = EstadoCorte.REGISTRADO
 
+    def corregir(self, vigencia: int, fecha_corte: date, hoy: date) -> None:
+        """D11 (docs/DECISIONES.md): corrige vigencia/fecha de un corte en
+        BORRADOR, sin pasar por rechazar-y-crear-uno-nuevo.
+
+        Un corte REGISTRADO no admite esta corrección: cambiar su vigencia
+        rompería el histórico ya cerrado (aclaración de D11, 2026-09-19).
+        """
+        if self.estado != EstadoCorte.BORRADOR:
+            raise OperacionNoPermitida(
+                "Solo un corte en BORRADOR admite corrección de vigencia/fecha.",
+                detalles={
+                    "motivo": "corte_no_es_borrador",
+                    "estado_actual": self.estado.value,
+                },
+            )
+        Corte.validar_fecha(fecha_corte, hoy)
+        self.vigencia = vigencia
+        self.fecha_corte = fecha_corte
+
     def puede_reutilizar(self, tipo: TipoArchivoFuente) -> bool:
         """HU-01/CA-5, CA-7: solo PDT y PROYECTOS son reutilizables.
 
