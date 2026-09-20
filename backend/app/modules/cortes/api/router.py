@@ -130,11 +130,18 @@ class ArchivoFuenteRespuestaParcial(BaseModel):
     solo entero (`reemplazar_proyectos` no distingue ambos conteos hoy).
     Deliberadamente fuera de este cambio (Opción 2, registrada, no
     bloqueante) — ver docs/DECISIONES.md.
+
+    `filas_ejecucion_reconocidas`/`filas_contratacion_reconocidas`
+    ([HU-03][FE-01]) ya cierran: el dato ya existía completo en
+    `ResultadoLectura.conteos` (`LectorEjecucion.leer`), solo faltaba
+    propagarlo. `None` para PDT/PROYECTOS — no aplica a esos tipos.
     """
 
     tipo: str
     nombre_archivo: str
     filas_reconocidas: int
+    filas_ejecucion_reconocidas: int | None = None
+    filas_contratacion_reconocidas: int | None = None
     descartes: list[DescarteRespuesta]
 
 
@@ -214,6 +221,8 @@ async def cargar_archivo(
         tipo=resultado.tipo.value,
         nombre_archivo=resultado.nombre_archivo,
         filas_reconocidas=resultado.filas_reconocidas,
+        filas_ejecucion_reconocidas=resultado.conteos.get("ejecucion"),
+        filas_contratacion_reconocidas=resultado.conteos.get("contratacion"),
         descartes=[
             DescarteRespuesta(
                 valor_crudo=descarte.valor_crudo,

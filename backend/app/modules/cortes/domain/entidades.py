@@ -84,6 +84,16 @@ class ArchivoFuente:
     (nunca se leyo nada) y para PDT/EJECUCION (no producen descartes de
     codigo hoy).
     """
+    conteos: dict[str, int] = field(default_factory=dict)
+    """[HU-03][FE-01]: propagado desde ResultadoLectura.conteos. `{}` para
+    PDT/PROYECTOS (sus claves -- "metas"/"proyectos" -- nunca "ejecucion"/
+    "contratacion", que es lo unico que pide el contrato). No menciona
+    "archivos reutilizados" como razon aparte (a diferencia de
+    `descartes`): CA-7 nunca permite reutilizar EJECUCION, asi que un
+    archivo reutilizado siempre es PDT o PROYECTOS -- ya cubierto por la
+    primera razon, no hay un caso adicional que reutilizacion agregue
+    aqui.
+    """
     codigos: list[CodigoIndicadorProducto] = field(default_factory=list)
     """[HU-04][FE-03]: propagados desde ResultadoLectura.codigos
     (contratos.py) por ServicioCortes._cargar_resultado -- ya vienen

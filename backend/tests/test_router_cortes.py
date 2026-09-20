@@ -389,6 +389,9 @@ def test_post_archivos_pdt_devuelve_201(cliente_con_lectores):
     assert cuerpo["filas_reconocidas"] == 1
     # D14/[HU-04][FE-03]: PDT no produce descartes de código.
     assert cuerpo["descartes"] == []
+    # [HU-03][FE-01]: filas por pestaña no aplica a PDT.
+    assert cuerpo["filas_ejecucion_reconocidas"] is None
+    assert cuerpo["filas_contratacion_reconocidas"] is None
 
 
 def test_post_archivos_ejecucion_devuelve_201(cliente_con_lectores):
@@ -415,6 +418,10 @@ def test_post_archivos_ejecucion_devuelve_201(cliente_con_lectores):
     assert cuerpo["filas_reconocidas"] == 3
     # D14/[HU-04][FE-03]: EJECUCION no produce descartes de código.
     assert cuerpo["descartes"] == []
+    # [HU-03][FE-01]: conteos por pestaña, ver LectorEjecucionFalso
+    # (conteos={"ejecucion": 1, "contratacion": 1}).
+    assert cuerpo["filas_ejecucion_reconocidas"] == 1
+    assert cuerpo["filas_contratacion_reconocidas"] == 1
 
 
 def test_post_archivos_proyectos_devuelve_201(cliente_con_lectores):
@@ -438,6 +445,9 @@ def test_post_archivos_proyectos_devuelve_201(cliente_con_lectores):
     cuerpo = respuesta.json()
     assert cuerpo["tipo"] == "PROYECTOS"
     assert cuerpo["filas_reconocidas"] == 1
+    # [HU-03][FE-01]: filas por pestaña no aplica a PROYECTOS.
+    assert cuerpo["filas_ejecucion_reconocidas"] is None
+    assert cuerpo["filas_contratacion_reconocidas"] is None
     # D14/[HU-04][FE-03]: el descarte fabricado por LectorProyectosFalso
     # llega intacto, con categoria como el valor del StrEnum (minúscula),
     # no el nombre del miembro.

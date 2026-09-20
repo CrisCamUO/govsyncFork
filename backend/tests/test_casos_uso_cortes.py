@@ -492,6 +492,37 @@ class TestCargarArchivo:
 
         assert archivo.descartes == [descarte]
 
+    def test_conteos_del_resultado_se_propagan_al_archivo(self, servicio):
+        """[HU-03][FE-01]: cargar_archivo propaga resultado.conteos al
+        ArchivoFuente que registra -- el dato ya existe completo en
+        LectorEjecucion (filas por pestaña), solo faltaba conectarlo."""
+        resultado = ResultadoLectura(
+            tipo=TipoArchivoIngesta.EJECUCION,
+            filas={"rubros": [], "contratos": [], "registros": []},
+            conteos={
+                "ejecucion": 374,
+                "contratacion": 270,
+                "rubros": 0,
+                "contratos": 0,
+                "registros": 0,
+            },
+        )
+        lector = _LectorFalso(resultado=resultado)
+        servicio._lectores = {TipoArchivoFuente.EJECUCION: lector}
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.EJECUCION, _XLSX_VALIDO, "presupuestal.xlsx"
+        )
+
+        assert archivo.conteos == {
+            "ejecucion": 374,
+            "contratacion": 270,
+            "rubros": 0,
+            "contratos": 0,
+            "registros": 0,
+        }
+
     def test_codigos_del_resultado_se_propagan_al_archivo(self, servicio):
         """[HU-04][FE-03]: mismo cableado que descartes (D14), ahora para la
         otra mitad de la tarjeta -- los codigos SI reconocidos. Deduplicar
