@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api/cliente.js";
 import CargaDeArchivo from "../components/CargaDeArchivo.jsx";
 import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
+import VistaPreviaDescartes from "../components/VistaPreviaDescartes.jsx";
 
 /**
  * Asistente de creación de un corte.
@@ -12,8 +13,15 @@ import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
  *                           columnas (CA-1, CA-3, CA-4, CA-5) — YA
  *                           IMPLEMENTADO, ver paso 2 abajo.
  *           [HU-03][FE-02] Pantalla de carga presupuestal
- *           [HU-04][FE-02] Carga de la plantilla BPIN
- *           [HU-04][FE-03] Vista previa de códigos extraídos y descartados
+ *           [HU-04][FE-02] Carga de la plantilla BPIN — YA IMPLEMENTADO,
+ *                           ver paso 2 abajo. Tarjeta de Karold, adelantada
+ *                           aquí porque no había respuesta de coordinación;
+ *                           mismo precedente que sentó Juan Esteban con PDT
+ *                           bajo su propia tarjeta [HU-02][FE-02] — revisar
+ *                           antes de fusionar.
+ *           [HU-04][FE-03] Vista previa de códigos extraídos y descartados —
+ *                           YA IMPLEMENTADO (componente `VistaPreviaDescartes`,
+ *                           PR #79), integrado aquí en el paso 2 de PROYECTOS.
  *
  * FLUJO
  *   Paso 1  vigencia y fecha — el calendario NO permite fechas futuras (CA-2),
@@ -22,11 +30,11 @@ import { Cargando, Error as EstadoError } from "../components/Estados.jsx";
  *           (con su `id`) queda en estado local y se avanza al paso 2 — antes
  *           el resultado de `crearCorte` se descartaba; [HU-02][FE-02] es el
  *           primer consumidor real de ese `id`.
- *   Paso 2  carga de archivos. Esta tarjeta ([HU-02][FE-02]) SOLO implementa
- *           el PDT (CA-1, CA-3, CA-4, CA-5) — EJECUCION ([HU-03][FE-02]) y
- *           PROYECTOS ([HU-04][FE-02]) son tarjetas aparte, no adelantadas
- *           aquí. Tampoco se adelanta la reutilización automática de un
- *           corte anterior (HU-01/CA-5, CA-6): eso es [HU-01][FE-03].
+ *   Paso 2  carga de archivos. Implementa PDT ([HU-02][FE-02], CA-1, CA-3,
+ *           CA-4, CA-5) y PROYECTOS ([HU-04][FE-02]/[FE-03]) — EJECUCION
+ *           ([HU-03][FE-02]) sigue sin adelantarse, tarjeta aparte. Tampoco
+ *           se adelanta la reutilización automática de un corte anterior
+ *           (HU-01/CA-5, CA-6): eso es [HU-01][FE-03].
  *   Paso 3  registrar. Bloqueado: `POST /cortes/{id}/registrar` no existe
  *           todavía como endpoint (ver TODO en `api/cliente.js`), aunque el
  *           dominio/aplicación ya están listos ([HU-01][BE-05]).
@@ -50,6 +58,8 @@ export default function NuevoCorte() {
   const [corte, setCorte] = useState(null);
   const [resultadoPdt, setResultadoPdt] = useState(null);
   const [errorPdt, setErrorPdt] = useState(null);
+  const [resultadoProyectos, setResultadoProyectos] = useState(null);
+  const [errorProyectos, setErrorProyectos] = useState(null);
   const hoy = new Date();
   const fechaMaxima = [
     hoy.getFullYear(),
@@ -89,6 +99,19 @@ export default function NuevoCorte() {
     }
   }
 
+  // [HU-04][FE-02]: mismo criterio que subirPdt — CargaDeArchivo nunca
+  // captura el error de onCargar, este componente lo atrapa y lo pasa de
+  // vuelta como prop error.
+  async function subirProyectos(archivo) {
+    setErrorProyectos(null);
+    try {
+      const resultado = await api.cargarArchivo(corte.id, "PROYECTOS", archivo);
+      setResultadoProyectos(resultado);
+    } catch (errorApi) {
+      setErrorProyectos(errorApi);
+    }
+  }
+
   if (corte) {
     return (
       <section>
@@ -112,6 +135,31 @@ export default function NuevoCorte() {
           }
           error={errorPdt}
           onCargar={subirPdt}
+        />
+
+        <CargaDeArchivo
+          tipo="PROYECTOS"
+          etiqueta="Plantilla de proyectos BPIN"
+          cargado={Boolean(resultadoProyectos)}
+          resultado={
+            resultadoProyectos && (
+              <>
+                {/* [HU-04][FE-02]: confirmación del conteo genérico, mismo
+                    criterio que ya usa PDT — esta pantalla es la que sabe
+                    que para PROYECTOS esas filas son "proyectos". */}
+                <p>
+                  {resultadoProyectos.filas_reconocidas} proyectos reconocidos.
+                </p>
+
+                {/* [HU-04][FE-03]: ya construido en PR #79, solo se integra. */}
+                <VistaPreviaDescartes
+                  descartes={resultadoProyectos.descartes}
+                />
+              </>
+            )
+          }
+          error={errorProyectos}
+          onCargar={subirProyectos}
         />
       </section>
     );
