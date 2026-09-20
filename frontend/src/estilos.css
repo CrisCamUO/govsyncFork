@@ -154,6 +154,15 @@ body {
   color: var(--tinta-suave);
 }
 
+/* [HU-04][FE-02]/CA-2: aclara que el archivo se conserva tal cual,
+   aunque su estructura no sea estándar — tono neutro (ni error ni
+   alerta), mismo patrón que .estado-sin-correspondencia: solo texto
+   atenuado, sin caja. */
+.carga-de-archivo-nota {
+  margin: 0;
+  color: var(--tinta-suave);
+}
+
 /* [UX-04] NULL explícito (Estados.jsx::SinCorrespondencia): distinto de una
    celda vacía ambigua, sin inventar un "N/A". */
 .estado-sin-correspondencia {
