@@ -8,6 +8,7 @@
  * cadena de herramientas funciona, sin fingir que la pantalla ya está hecha.
  */
 import { Route, Routes } from "react-router-dom";
+import NuevoCorte from "./pages/NuevoCorte.jsx";
 
 import Disposicion from "./components/Disposicion.jsx";
 
@@ -34,7 +35,7 @@ export default function App() {
     <Routes>
       <Route element={<Disposicion />}>
         {/* TODO [HU-01][FE-02] <Route path="/cortes" element={<Cortes />} /> */}
-        {/* TODO [HU-01][FE-02] <Route path="/cortes/nuevo" element={<NuevoCorte />} /> */}
+        <Route path="/cortes/nuevo" element={<NuevoCorte />} />
         {/* TODO [HU-07][FE-02] <Route path="/matriz/:corteId?" element={<MatrizRelacion />} /> */}
         <Route path="*" element={<Pendiente />} />
       </Route>
