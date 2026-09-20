@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from app.shared.codigos import DescarteIndicador
+
 
 class TipoArchivo(StrEnum):
     PDT = "PDT"
@@ -39,6 +41,17 @@ class ResultadoLectura:
     filas: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     conteos: dict[str, int] = field(default_factory=dict)
     advertencias: list[str] = field(default_factory=list)
+    descartes: list[DescarteIndicador] = field(default_factory=list)
+    """D14 (docs/DECISIONES.md): fragmentos de indicador descartados por
+    `CodigoIndicadorProducto.extraer_todos`, con su `categoria` estructural
+    intacta -- sin reconstruirla como texto en `advertencias`. Reutiliza
+    `DescarteIndicador` de `shared/codigos.py` directamente (mismo shared
+    kernel que ya cruza las 4 fuentes; `shared/` no pertenece a ningun
+    modulo, asi que esto no cruza la regla de modulos de
+    `test_arquitectura.py`). Hoy solo `LectorProyectos` lo llena -- PDT y
+    EJECUCION no producen descartes de codigo, asi que queda `[]` para
+    ellos, que es el comportamiento correcto, no una limitacion a resolver.
+    """
 
     @property
     def total_reconocido(self) -> int:
