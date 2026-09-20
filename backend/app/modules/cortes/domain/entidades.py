@@ -34,7 +34,7 @@ from datetime import date
 # from enum import Enum
 from enum import StrEnum
 
-from app.shared.codigos import DescarteIndicador
+from app.shared.codigos import CodigoIndicadorProducto, DescarteIndicador
 from app.shared.errors import OperacionNoPermitida, ReglaDeNegocioViolada
 
 
@@ -83,6 +83,13 @@ class ArchivoFuente:
     ServicioCortes._cargar_resultado. `[]` para archivos reutilizados
     (nunca se leyo nada) y para PDT/EJECUCION (no producen descartes de
     codigo hoy).
+    """
+    codigos: list[CodigoIndicadorProducto] = field(default_factory=list)
+    """[HU-04][FE-03]: propagados desde ResultadoLectura.codigos
+    (contratos.py) por ServicioCortes._cargar_resultado -- ya vienen
+    deduplicados por `.valor` desde el lector, este campo no vuelve a
+    deduplicar. `[]` para archivos reutilizados y para PDT/EJECUCION
+    (mismo criterio que `descartes`).
     """
 
 

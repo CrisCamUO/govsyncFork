@@ -206,6 +206,7 @@ class ServicioCortes:
                 reutilizado=False,
                 corte_origen_id=None,
                 descartes=resultado.descartes,
+                codigos=resultado.codigos,
             )
             self._cortes.registrar_archivo(corte_id, archivo)
             self._commit()

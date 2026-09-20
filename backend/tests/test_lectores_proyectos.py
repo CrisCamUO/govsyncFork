@@ -160,6 +160,29 @@ class TestLeer:
         assert resultado.descartes[0].valor_crudo == "2026"
         assert resultado.descartes[0].categoria == CategoriaDescarte.LONGITUD_CORTA
         assert len(resultado.advertencias) == 1
+        # [HU-04][FE-03]: el fragmento descartado ("2026") no cuenta como
+        # codigo reconocido -- solo el valido llega a resultado.codigos.
+        assert [c.valor for c in resultado.codigos] == ["170202300"]
+
+    def test_codigo_repetido_entre_proyectos_se_expone_una_sola_vez_en_orden(self) -> None:
+        """[HU-04][FE-03], decision del equipo 2026-09-20: resultado.codigos
+        es una vista previa de QUE se reconocio, no un log de apariciones --
+        el mismo codigo de indicador puede aparecer legitimamente en varios
+        proyectos (docstring de contratos.py), y aqui se deduplica por
+        `.valor` preservando el orden de PRIMERA aparicion en el archivo."""
+        libro = Workbook()
+        libro.remove(libro.active)
+        hoja = libro.create_sheet(HOJA_PROYECTOS)
+        hoja.append(["Código BPIN", "Indicador de producto"])
+        hoja.append([BPIN_1, "459903100\n459902300"])
+        hoja.append([BPIN_2, "459902300\n459903100"])
+        buffer_libro = _a_bytes(libro)
+
+        resultado = LectorProyectos().leer(buffer_libro, "proyectos.xlsx", vigencia=2026)
+
+        # Orden de primera aparicion (fila 1): 459903100 antes que 459902300,
+        # pese a que la fila 2 los repite en orden inverso.
+        assert [c.valor for c in resultado.codigos] == ["459903100", "459902300"]
 
     def test_indicador_con_codigos_repetidos_no_los_deduplica(self) -> None:
         """CA-4 (docstring de extraer_todos): un código repetido en la celda

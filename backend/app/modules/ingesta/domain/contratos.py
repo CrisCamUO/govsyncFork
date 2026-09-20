@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from app.shared.codigos import DescarteIndicador
+from app.shared.codigos import CodigoIndicadorProducto, DescarteIndicador
 
 
 class TipoArchivo(StrEnum):
@@ -51,6 +51,18 @@ class ResultadoLectura:
     `test_arquitectura.py`). Hoy solo `LectorProyectos` lo llena -- PDT y
     EJECUCION no producen descartes de codigo, asi que queda `[]` para
     ellos, que es el comportamiento correcto, no una limitacion a resolver.
+    """
+    codigos: list[CodigoIndicadorProducto] = field(default_factory=list)
+    """[HU-04][FE-03]: la otra mitad de "vista previa de codigos extraidos
+    y descartados" -- los codigos que SI se reconocieron (complemento de
+    `descartes`, que solo cubre los que fallaron). Deduplicados por
+    `.valor` preservando el orden de primera aparicion en el archivo
+    (decision del equipo, 2026-09-20, ver docs/DECISIONES.md): la celda de
+    Proyectos repite el mismo codigo de indicador para varios proyectos de
+    forma legitima, y esta lista es para que la administradora confirme
+    QUE se reconocio, no un log de ocurrencias -- eso ya lo cubre
+    `total_reconocido`/`filas_reconocidas`. Mismo criterio de `descartes`:
+    hoy solo `LectorProyectos` lo llena, PDT/EJECUCION quedan en `[]`.
     """
 
     @property
