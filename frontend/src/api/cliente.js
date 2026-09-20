@@ -107,10 +107,27 @@ export const api = {
   //      BLOQUEADO: el endpoint no existe todavía. Depende de [HU-01][BE-05],
   //      donde Corte.registrar() y ServicioCortes.registrar_corte() siguen en
   //      NotImplementedError.
-  // TODO [HU-02..04][FE-01] cargarArchivo(corteId, tipo, archivo) ->
-  //      POST /cortes/{id}/archivos/{tipo}. BLOQUEADO: el endpoint no existe
-  //      ([HU-02..04][BE-04/BE-06]); no hay ningún UploadFile en el backend.
-  //      `solicitar` ya trae lista la rama FormData con el campo "archivo".
+
+  /**
+   * HU-02/CA-1, HU-03/CA-1, HU-04/CA-1: sube el archivo fuente `tipo` para
+   * `corteId`. `POST /cortes/{corteId}/archivos/{tipo}` -- el endpoint ya
+   * existe y esta probado para los 3 tipos (PDT/EJECUCION/PROYECTOS,
+   * `test_router_cortes.py`); esta funcion reemplaza el TODO que decia
+   * "bloqueado" (verificado 2026-09-20, backend ya cierra de punta a punta).
+   *
+   * 201 con `{ tipo, nombre_archivo, filas_reconocidas, descartes }`
+   * (`ArchivoFuenteRespuestaParcial`, forma provisional -- todavia no incluye
+   * `advertencias` a nivel de fila, solo el conteo total). 422 con
+   * `codigo: "archivo_invalido"` y `detalles.motivo` en
+   * `"hoja_no_encontrada"` (pestana/archivo incorrecto, D15) o
+   * `"columnas_faltantes"` (con `detalles.columnas_faltantes`). 404/409 si
+   * el corte no existe o no esta en BORRADOR.
+   */
+  cargarArchivo: (corteId, tipo, archivo) =>
+    solicitar(`/api/v1/cortes/${corteId}/archivos/${tipo}`, {
+      metodo: "POST",
+      archivo,
+    }),
 
   /**
    * HU-07/CA-1. Matriz de relación de un corte, paginada.
