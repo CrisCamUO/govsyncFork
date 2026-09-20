@@ -102,3 +102,54 @@ body {
 .estado-error-reintentar:hover {
   background: var(--error-fondo);
 }
+
+/* [HU-04][FE-03] Vista previa de descartes (VistaPreviaDescartes.jsx).
+   Prioridad alta (posible código real perdido) usa el token de alerta;
+   prioridad baja (ruido de texto libre) usa un tono neutro para no competir
+   visualmente con lo que sí merece revisión. */
+.vista-previa-descartes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.vista-previa-descartes-resumen {
+  margin: 0;
+  font-weight: 600;
+  color: var(--alerta);
+}
+
+.vista-previa-descartes-grupo {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radio);
+  border: 1px solid var(--borde);
+}
+
+.vista-previa-descartes-grupo[data-prioridad="alta"] {
+  border-color: var(--alerta);
+  background: var(--alerta-fondo);
+}
+
+.vista-previa-descartes-grupo h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.vista-previa-descartes-grupo ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.vista-previa-descartes-grupo li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.vista-previa-descartes-motivo {
+  color: var(--tinta-suave);
+}
