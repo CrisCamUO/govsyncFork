@@ -22,6 +22,7 @@ from app.modules.cortes.domain.puertos import RepositorioCortes, RepositorioDato
 from app.modules.ingesta.domain.contratos import ResultadoLectura
 from app.modules.ingesta.domain.contratos import TipoArchivo as TipoArchivoIngesta
 from app.modules.ingesta.persistence.lectores.pdt import LectorPDT
+from app.shared.codigos import CategoriaDescarte, DescarteIndicador
 from app.shared.errors import (
     ArchivoInvalido,
     OperacionNoPermitida,
@@ -464,6 +465,32 @@ class TestCargarArchivo:
         assert servicio._cortes.obtener(corte.id).archivos[TipoArchivoFuente.PDT] == archivo
         assert servicio.llamadas["commit"] == commits_previos + 1
         assert servicio.llamadas["rollback"] == 0
+
+    def test_descartes_del_resultado_se_propagan_al_archivo(self, servicio):
+        """D14: cargar_archivo propaga resultado.descartes al ArchivoFuente
+        que registra -- hoy solo LectorProyectos los produce, pero el
+        cableado no depende de esa implementacion, solo de que
+        ResultadoLectura.descartes venga lleno."""
+        descarte = DescarteIndicador(
+            valor_crudo="2026",
+            motivo="longitud invalida",
+            categoria=CategoriaDescarte.LONGITUD_CORTA,
+        )
+        resultado = ResultadoLectura(
+            tipo=TipoArchivoIngesta.PDT,
+            filas={"metas": []},
+            conteos={"metas": 0},
+            descartes=[descarte],
+        )
+        lector = _LectorFalso(resultado=resultado)
+        self._servicio_con_lector(servicio, lector)
+        corte = servicio.crear_corte(vigencia=2026, fecha_corte=date(2026, 9, 8))
+
+        archivo = servicio.cargar_archivo(
+            corte.id, TipoArchivoFuente.PDT, _XLSX_VALIDO, "plan.xlsx"
+        )
+
+        assert archivo.descartes == [descarte]
 
     def test_nombre_de_archivo_saneado_es_el_que_se_registra(self, servicio):
         """SEC-03 (sanitizar_nombre) descarta rutas: un intento de path
