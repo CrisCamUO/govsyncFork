@@ -59,3 +59,15 @@ la base de datos, o `pg_dump` contra la External Database URL). Una
 migración mal escrita contra una base vacía es un problema de desarrollo;
 la misma migración contra datos reales sin respaldo es una pérdida de
 información irreversible.
+
+El job automático `migrate-render` (`ci.yml`) NO hace respaldo antes de
+migrar — riesgo aceptado conscientemente dado el volumen de datos
+actual. Si una futura migración borra o transforma datos de forma
+irreversible, quien la escriba es responsable de respaldar manualmente
+ANTES de fusionar a `main`, no confiar en el job automático para eso.
+
+Antes de aprobar un PR que modifique una migración de forma
+destructiva (`DROP COLUMN`, `ALTER TYPE` que pueda truncar datos,
+`DELETE`), quien revisa debe exigir evidencia de un respaldo manual
+reciente en la descripción del PR — el job automático no lo hace por
+ustedes.
