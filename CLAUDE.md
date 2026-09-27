@@ -23,7 +23,7 @@ npm run format:check
 docker compose up -d  # Postgres 16 only — backend and frontend run locally for hot reload
 ```
 
-Backend (from `backend/`, with a Python 3.11+ venv active):
+Backend (from `backend/`, with a Python 3.12+ venv active):
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
@@ -36,6 +36,23 @@ ruff format .
 alembic revision --autogenerate -m "mensaje"
 alembic upgrade head
 ```
+
+### Adding or updating a backend dependency
+
+`requirements.txt` and `requirements-dev.txt` are generated with hashes (supply-chain control,
+see `docs/SEGURIDAD.md`); CI, the Dockerfile and Render install with
+`--require-hashes --only-binary ":all:"`. Only the `.in` files are edited by hand (direct
+dependencies, pinned with `==`): `requirements.in` for production and `requirements-dev.in` for
+dev tooling. Then, from `backend/` (`pip install uv` if missing):
+
+```bash
+uv pip compile requirements.in --universal --python-version 3.12 --generate-hashes -o requirements.txt
+uv pip compile requirements-dev.in -c requirements.txt --universal --python-version 3.12 --generate-hashes -o requirements-dev.txt
+pip install -r requirements.txt -r requirements-dev.txt
+```
+
+**Never edit `requirements*.txt` by hand or use `pip freeze`**: it drops the hashes and the
+platform markers (`--universal` produces a single file valid for both Windows and Linux).
 
 Commits are validated by commitlint (Conventional Commits, see below) via a husky `commit-msg`
 hook — `npm install` at the root activates it.

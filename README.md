@@ -6,7 +6,7 @@ Consolida y cruza tres fuentes que hoy viven en Excels sueltos — el Plan Indic
 
 ## Stack
 
-- **Backend:** FastAPI (Python 3.11+) — monolito modular por capas (`api` → `application` → `domain` ← `persistence`), ver [`CLAUDE.md`](./CLAUDE.md) para el detalle de la arquitectura.
+- **Backend:** FastAPI (Python 3.12+) — monolito modular por capas (`api` → `application` → `domain` ← `persistence`), ver [`CLAUDE.md`](./CLAUDE.md) para el detalle de la arquitectura.
 - **Frontend:** React + Vite, Tailwind CSS.
 - **Base de datos:** PostgreSQL 16, migraciones con Alembic.
 
@@ -22,7 +22,7 @@ Monorepo — [`backend/`](./backend) (API + lógica de negocio), [`frontend/`](.
 
 - **Docker Desktop** (para Postgres 16).
 - **Node.js 18+** y **npm**.
-- **Python 3.11+** con `venv`.
+- **Python 3.12+** con `venv`.
 
 ### 1. Variables de entorno
 
