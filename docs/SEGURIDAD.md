@@ -86,6 +86,27 @@ Evidencia: `test_validacion_archivos.py` (16 pruebas), 170 passed en local
       `[DEV-06]` (SonarCloud/CodeQL) todavía no está implementado, así que este
       secreto ni siquiera existe todavía
 
+## Cadena de suministro de dependencias
+
+- [x] Dependencias del backend fijadas por versión **y por hash** —
+      `backend/requirements.txt` y `backend/requirements-dev.txt` se generan con
+      `uv pip compile --universal --generate-hashes` a partir de
+      `requirements.in` / `requirements-dev.in` (procedimiento en
+      `CONTRIBUTING.md`). La CI (`backend-calidad`, `backend-migraciones`,
+      `migrate-render`) y el `Dockerfile` instalan con
+      `pip install --require-hashes --only-binary ":all:"`: pip rechaza cualquier
+      archivo cuyo hash no coincida y nunca compila un paquete desde el código
+      fuente (no ejecuta `setup.py` de terceros). Resuelve el hallazgo de
+      SonarCloud "Using dependencies without locking resolved versions"; es
+      crítico en `migrate-render`, el único job con acceso a la BD de producción
+- [x] **Falso positivo documentado:** SonarCloud marca `POSTGRES_PASSWORD: govsync`
+      en `.github/workflows/ci.yml` como credencial en el código. Es la
+      contraseña de un contenedor Postgres efímero del job `backend-migraciones`:
+      solo existe durante la ejecución, no es accesible fuera del runner y no
+      contiene datos reales. La credencial de producción vive en el secret
+      `RENDER_DATABASE_URL`, nunca en el repositorio. Esa contraseña **no debe
+      reutilizarse en ningún entorno real**
+
 ## Exposición de errores internos
 
 - [x] Las excepciones de dominio (`app/shared/errors.py`) llegan al cliente
